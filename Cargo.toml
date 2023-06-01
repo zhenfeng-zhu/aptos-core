@@ -40,6 +40,7 @@ members = [
     "consensus/consensus-types",
     "consensus/safety-rules",
     "crates/aptos",
+    "crates/aptos-abi",
     "crates/aptos-bitvec",
     "crates/aptos-build-info",
     "crates/aptos-compression",
@@ -249,6 +250,7 @@ rust-version = "1.70"
 aptos = { path = "crates/aptos" }
 aptos-accumulator = { path = "storage/accumulator" }
 aptos-aggregator = { path = "aptos-move/aptos-aggregator" }
+aptos-abi = { path = "crates/aptos-abi" }
 aptos-api = { path = "api" }
 aptos-api-test-context = { path = "api/test-context" }
 aptos-api-types = { path = "api/types" }
