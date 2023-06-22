@@ -20,7 +20,7 @@ use aptos_executor_types::{ChunkCommitNotification, ChunkExecutorTrait};
 use aptos_infallible::Mutex;
 use aptos_logger::prelude::*;
 use aptos_mempool_notifications::MempoolNotificationSender;
-use aptos_storage_interface::{DbReader, DbReaderWriter, StateSnapshotReceiver};
+use aptos_storage_interface::{DbReader, DbReaderWriter, FastSyncStatus, StateSnapshotReceiver};
 use aptos_storage_service_notifications::StorageServiceNotificationSender;
 use aptos_types::{
     ledger_info::LedgerInfoWithSignatures,
@@ -110,6 +110,12 @@ pub trait StorageSynchronizerInterface {
     /// Finish the chunk executor at this round of state sync by releasing
     /// any in-memory resources to prevent memory leak.
     fn finish_chunk_executor(&self);
+
+    /// Inform storage the fast_sync indeed starts
+    fn notify_storage_fast_sync_starts(&mut self) -> Result<(), Error>;
+
+    /// Inform storage the fast_sync indeed ends
+    fn notify_storage_fast_sync_ends(&mut self) -> Result<(), Error>;
 }
 
 /// The implementation of the `StorageSynchronizerInterface` used by state sync
@@ -363,6 +369,26 @@ impl<
 
     fn finish_chunk_executor(&self) {
         self.chunk_executor.finish()
+    }
+
+    /// Inform storage the fast_sync indeed starts
+    fn notify_storage_fast_sync_starts(&mut self) -> Result<(), Error> {
+        self.storage
+            .update_fast_sync_status(FastSyncStatus::STARTED)
+            .map_err(|e| {
+                Error::UnexpectedError(format!("Failed to update fast sync status: {:?}", e))
+            })?;
+        Ok(())
+    }
+
+    /// Inform storage the fast_sync indeed ends
+    fn notify_storage_fast_sync_ends(&mut self) -> Result<(), Error> {
+        self.storage
+            .update_fast_sync_status(FastSyncStatus::FINISHED)
+            .map_err(|e| {
+                Error::UnexpectedError(format!("Failed to update fast sync status: {:?}", e))
+            })?;
+        Ok(())
     }
 }
 

@@ -478,6 +478,8 @@ impl<
         // Bootstrap according to the mode
         match self.get_bootstrapping_mode() {
             BootstrappingMode::DownloadLatestStates => {
+                self.storage_synchronizer
+                    .notify_storage_fast_sync_starts()?;
                 self.fetch_missing_state_snapshot_data(
                     highest_synced_version,
                     highest_known_ledger_info,
@@ -539,6 +541,7 @@ impl<
                 // We've already bootstrapped to an initial state snapshot. If this a fullnode, the
                 // continuous syncer will take control and get the node up-to-date. If this is a
                 // validator, consensus will take control and sync depending on how it sees fit.
+                self.storage_synchronizer.notify_storage_fast_sync_ends()?;
                 self.bootstrapping_complete().await
             } else {
                 panic!("Fast syncing is currently unsupported for nodes with existing state! \

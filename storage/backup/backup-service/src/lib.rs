@@ -4,11 +4,37 @@
 
 mod handlers;
 
-use crate::handlers::get_routes;
-use aptos_db::AptosDB;
+use crate::handlers::{get_routes, get_routes_with_backup_accessor};
+use aptos_db::{
+    backup::backup_data_accessor::BackupDataAccessor, fast_sync_aptos_db::FastSyncStorageWrapper,
+    AptosDB,
+};
 use aptos_logger::prelude::*;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::runtime::Runtime;
+
+pub fn start_backup_service_with_fast_sync_wrapper(
+    address: SocketAddr,
+    db: Arc<FastSyncStorageWrapper>,
+) -> Runtime {
+    let backup_accessor = BackupDataAccessor::new(db);
+    let routes = get_routes_with_backup_accessor(backup_accessor);
+
+    let runtime = aptos_runtimes::spawn_named_runtime("backup".into(), None);
+
+    // Ensure that we actually bind to the socket first before spawning the
+    // server tasks. This helps in tests to prevent races where a client attempts
+    // to make a request before the server task is actually listening on the
+    // socket.
+    //
+    // Note: we need to enter the runtime context first to actually bind, since
+    //       tokio TcpListener can only be bound inside a tokio context.
+    let _guard = runtime.enter();
+    let server = warp::serve(routes).bind(address);
+    runtime.handle().spawn(server);
+    info!("Backup service spawned.");
+    runtime
+}
 
 pub fn start_backup_service(address: SocketAddr, db: Arc<AptosDB>) -> Runtime {
     let backup_handler = db.get_backup_handler();
