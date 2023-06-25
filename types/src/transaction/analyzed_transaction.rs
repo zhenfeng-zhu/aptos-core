@@ -162,6 +162,25 @@ impl AnalyzedTransaction {
             read_hints,
         )
     }
+
+    pub fn expect_p_txn(self) -> (Transaction, Vec<StateKey>, Vec<StateKey>) {
+        assert!(self.predictable_transaction());
+        (
+            self.transaction,
+            Self::expect_specific_locations(self.read_hints),
+            Self::expect_specific_locations(self.write_hints),
+        )
+    }
+
+    fn expect_specific_locations(locations: Vec<StorageLocation>) -> Vec<StateKey> {
+        locations
+            .into_iter()
+            .map(|loc| match loc {
+                StorageLocation::Specific(key) => key,
+                _ => unreachable!(),
+            })
+            .collect()
+    }
 }
 
 impl PartialEq<Self> for AnalyzedTransaction {
