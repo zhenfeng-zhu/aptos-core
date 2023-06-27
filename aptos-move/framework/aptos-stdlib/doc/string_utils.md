@@ -8,7 +8,6 @@ A module for formatting move values as strings.
 
 -  [Struct `Cons`](#0x1_string_utils_Cons)
 -  [Struct `NIL`](#0x1_string_utils_NIL)
--  [Struct `FakeCons`](#0x1_string_utils_FakeCons)
 -  [Constants](#@Constants_0)
 -  [Function `to_string`](#0x1_string_utils_to_string)
 -  [Function `to_string_with_canonical_addresses`](#0x1_string_utils_to_string_with_canonical_addresses)
@@ -95,40 +94,6 @@ A module for formatting move values as strings.
 <dl>
 <dt>
 <code>dummy_field: bool</code>
-</dt>
-<dd>
-
-</dd>
-</dl>
-
-
-</details>
-
-<a name="0x1_string_utils_FakeCons"></a>
-
-## Struct `FakeCons`
-
-
-
-<pre><code>#[testonly]
-<b>struct</b> <a href="string_utils.md#0x1_string_utils_FakeCons">FakeCons</a>&lt;T, N&gt; <b>has</b> <b>copy</b>, drop, store
-</code></pre>
-
-
-
-<details>
-<summary>Fields</summary>
-
-
-<dl>
-<dt>
-<code>car: T</code>
-</dt>
-<dd>
-
-</dd>
-<dt>
-<code>cdr: N</code>
 </dt>
 <dd>
 
