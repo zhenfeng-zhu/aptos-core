@@ -37,6 +37,7 @@ use std::{
         Arc,
     },
 };
+use crate::executor_common::BlockExecutor;
 
 struct CommitGuard<'a> {
     post_commit_txs: &'a Vec<Sender<u32>>,
@@ -69,7 +70,7 @@ enum CommitRole {
     Worker(Receiver<TxnIndex>),
 }
 
-pub struct BlockExecutor<T, E, S, X> {
+pub struct BlockSTMExecutor<T, E, S, X> {
     // number of active concurrent tasks, corresponding to the maximum number of rayon
     // threads that may be concurrently participating in parallel execution.
     concurrency_level: usize,
@@ -78,7 +79,7 @@ pub struct BlockExecutor<T, E, S, X> {
     phantom: PhantomData<(T, E, S, X)>,
 }
 
-impl<T, E, S, X> BlockExecutor<T, E, S, X>
+impl<T, E, S, X> BlockSTMExecutor<T, E, S, X>
 where
     T: Transaction,
     E: ExecutorTask<Txn = T>,
@@ -761,8 +762,22 @@ where
         ret.resize_with(num_txns, E::Output::skip_output);
         Ok(ret)
     }
+}
 
-    pub fn execute_block(
+impl<T, E, S, X> BlockExecutor for BlockSTMExecutor<T, E, S, X>
+where
+    T: Transaction,
+    E: ExecutorTask<Txn = T>,
+    S: TStateView<Key = T::Key> + Sync,
+    X: Executable + 'static,
+{
+    type Transaction = T;
+    type ExecutorTask = E;
+    type StateView = S;
+    type Executable = X;
+    type Error = Error<E::Error>;
+
+    fn execute_block(
         &self,
         executor_arguments: E::Argument,
         signature_verified_block: BlockExecutorTransactions<T>,
