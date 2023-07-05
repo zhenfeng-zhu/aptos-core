@@ -34,6 +34,7 @@ parking_lot = { workspace = true }
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
 rayon = { workspace = true }
+thread_local = { workspace = true }
 
 [dev-dependencies]
 claims = { workspace = true }
