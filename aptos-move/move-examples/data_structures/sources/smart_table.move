@@ -592,4 +592,34 @@ module aptos_std::smart_table2 {
         assert!(r, 0);
         destroy(t);
     }
+
+    #[test]
+    fun test_all_manual_inline() {
+        let t = make();
+	let r = {
+	    let table = &t;
+            let result = true;
+            let i = 0;
+            while (i < table.num_buckets) {
+		let bucket = table_with_length::borrow(&table.buckets, i);
+		let j = 0;
+		let bucket_len = vector::length(bucket);
+		while (j < bucket_len) {
+                    let e = vector::borrow(bucket, j);
+                    if (! {
+			let (_t, v) = (&e.key, &e.value);
+			*v < 100
+		    }) {
+			result = false;
+			break
+                    };
+                    j = j + 1;
+		};
+		i = i + 1;
+            };
+	    result
+	};
+        assert!(r, 0);
+        destroy(t);
+    }
 }
