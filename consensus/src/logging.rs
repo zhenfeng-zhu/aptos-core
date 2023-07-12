@@ -18,6 +18,7 @@ pub struct LogSchema {
     rounds: Option<Vec<Round>>,
     first_round: Option<Round>,
     timestamps: Option<Vec<u64>>,
+    self_id: Option<Author>,
 }
 
 #[derive(Serialize)]
@@ -61,6 +62,7 @@ impl LogSchema {
             rounds: None,
             first_round: None,
             timestamps: None,
+            self_id: None,
         }
     }
 }

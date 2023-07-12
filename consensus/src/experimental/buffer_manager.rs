@@ -234,7 +234,8 @@ impl BufferManager {
                 .new_log(LogEvent::BCastRandToAll)
                 .item_id(item_hash)
                 .rounds(rounds.clone())
-                .timestamps(rand_shares.timestamps());
+                .timestamps(rand_shares.timestamps())
+                .self_id(self.author);
 
             if rounds.is_empty() {
                 info!(log_event);
@@ -258,7 +259,8 @@ impl BufferManager {
                         .remote_peer(leader)
                         .item_id(item_hash)
                         .rounds(rounds.clone())
-                        .timestamps(rand_shares.timestamps());
+                        .timestamps(rand_shares.timestamps())
+                        .self_id(self.author);
 
                     if rounds.is_empty() {
                         info!(log_event);
@@ -297,7 +299,8 @@ impl BufferManager {
                     .remote_peer(rand_shares.author())
                     .item_id(item_id)
                     .rounds(rounds.clone())
-                    .timestamps(rand_shares.timestamps());
+                    .timestamps(rand_shares.timestamps())
+                    .self_id(self.author);
 
                 if rounds.is_empty() {
                     info!(log_event);
@@ -337,7 +340,8 @@ impl BufferManager {
                                         .new_log(LogEvent::LeaderBCastRand)
                                         .item_id(item_id)
                                         .rounds(rounds.clone())
-                                        .timestamps(rand_decisions.timestamps());
+                                        .timestamps(rand_decisions.timestamps())
+                                        .self_id(self.author);
 
                                     if rounds.is_empty() {
                                         info!(log_event);
@@ -411,7 +415,8 @@ impl BufferManager {
                     .item_id(item_id)
                     .rounds(rounds.clone())
                     .timestamps(rand_decisions.timestamps())
-                    .remote_peer(rand_decisions.author());
+                    .remote_peer(rand_decisions.author())
+                    .self_id(self.author);
 
                 if rounds.is_empty() {
                     info!(log_event);
@@ -842,7 +847,8 @@ impl BufferManager {
                 .new_log(LogEvent::BCastShareToAllDueToTimeout)
                 .item_id(cursor.unwrap())
                 .rounds(rounds.clone())
-                .timestamps(rand_shares.timestamps());
+                .timestamps(rand_shares.timestamps())
+                .self_id(self.author);
 
             if rounds.is_empty() {
                 info!(log_event);
@@ -887,7 +893,8 @@ impl BufferManager {
                 .new_log(LogEvent::BCastDecisionToAllDueToTimeout)
                 .item_id(cursor.unwrap())
                 .rounds(rounds.clone())
-                .timestamps(rand_decision.timestamps());
+                .timestamps(rand_decision.timestamps())
+                .self_id(self.author);
 
             if rounds.is_empty() {
                 info!(log_event);
