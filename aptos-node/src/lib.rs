@@ -543,16 +543,16 @@ pub fn setup_environment_and_start_node(
             peers_and_metadata.clone(),
         );
 
-    loop {
-        let expected_peers = { peers_and_metadata.get_trusted_peers(&NetworkId::Validator).unwrap().read().len() };
-        let conn_peers = peers_and_metadata.get_connected_peers_and_metadata().unwrap().len();
-        debug!("Expected peers: {}, connected peers: {}", expected_peers, conn_peers);
-        if conn_peers >= expected_peers && expected_peers > 0 {
-            thread::sleep(Duration::from_secs(20));
-            break;
-        }
-        thread::sleep(Duration::from_secs(5));
-    }
+    // loop {
+    //     let expected_peers = { peers_and_metadata.get_trusted_peers(&NetworkId::Validator).unwrap().read().len() };
+    //     let conn_peers = peers_and_metadata.get_connected_peers_and_metadata().unwrap().len();
+    //     debug!("Expected peers: {}, connected peers: {}", expected_peers, conn_peers);
+    //     if conn_peers >= expected_peers && expected_peers > 0 {
+    //         thread::sleep(Duration::from_secs(20));
+    //         break;
+    //     }
+    //     thread::sleep(Duration::from_secs(5));
+    // }
 
     // Create the consensus runtime (this blocks on state sync first)
     let consensus_runtime = consensus_network_interfaces.map(|consensus_network_interfaces| {
