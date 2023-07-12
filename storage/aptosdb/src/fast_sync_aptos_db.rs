@@ -3,22 +3,18 @@
 
 use crate::{
     backup::backup_handler::DbState,
-    event_store::EventStore,
-    ledger_store::LedgerStore,
     metrics::{
         BACKUP_EPOCH_ENDING_EPOCH, BACKUP_STATE_SNAPSHOT_LEAF_IDX, BACKUP_STATE_SNAPSHOT_VERSION,
         BACKUP_TXN_VERSION,
     },
-    state_store::StateStore,
-    transaction_store::TransactionStore,
     AptosDB,
 };
-use anyhow::{anyhow, ensure, format_err, Context, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use aptos_config::config::{BootstrappingMode, NodeConfig};
 use aptos_crypto::HashValue;
 use aptos_storage_interface::{
     cached_state_view::ShardedStateCache, state_delta::StateDelta, DbReader, DbWriter,
-    ExecutedTrees, FastSyncStatus, Order, StateSnapshotReceiver,
+    ExecutedTrees, Order, StateSnapshotReceiver,
 };
 use aptos_types::{
     account_config::NewBlockEvent,
@@ -52,21 +48,29 @@ use std::sync::{Arc, RwLock};
 
 const SECONDARY_DB_DIR: &str = "fast_sync_secondary";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FastSyncStatus {
+    UNKNOWN,
+    STARTED,
+    FINISHED,
+}
+
 /// This is a wrapper around [AptosDB] that is used to bootstrap the node for fast sync mode
 pub struct FastSyncStorageWrapper {
-    // main is used for normal read/write or genesis data during fast sync
-    db_main: AptosDB,
-    // secondary is used for restoring fast sync snapshot and all the read/writes afterwards
-    db_secondary: Option<AptosDB>,
+    // Used for storing genesis data during fast sync
+    temporary_db_with_genesis: AptosDB,
+    // Used for restoring fast sync snapshot and all the read/writes afterwards
+    db_for_fast_sync: Option<AptosDB>,
     // This is for reading the fast_sync status to determine which db to use
     fast_sync_status: Arc<RwLock<FastSyncStatus>>,
 }
 
 impl FastSyncStorageWrapper {
-    pub fn new_fast_sync_aptos_db(
+    /// If the db is empty and configured to do fast sync, we return a FastSyncStorageWrapper
+    /// Otherwise, we returns AptosDB directly and the FastSyncStorageWrapper is None
+    pub fn initialize_dbs(
         config: &NodeConfig,
-        status: Arc<RwLock<FastSyncStatus>>,
-    ) -> Result<Self> {
+    ) -> Result<(Option<AptosDB>, Option<FastSyncStorageWrapper>)> {
         let mut db_dir = config.storage.dir();
         let db_main = AptosDB::open(
             db_dir.as_path(),
@@ -79,11 +83,13 @@ impl FastSyncStorageWrapper {
         )
         .map_err(|err| anyhow!("fast sync DB failed to open {}", err))?;
 
-        let db_secondary = if config.state_sync.state_sync_driver.bootstrapping_mode
+        // when the db is empty and config to do fast sync, we will create a second DB
+        if config.state_sync.state_sync_driver.bootstrapping_mode
             == BootstrappingMode::DownloadLatestStates
+            && (db_main.ledger_store.get_latest_version().map_or(0, |v| v) == 0)
         {
             db_dir.push(SECONDARY_DB_DIR);
-            Some(
+            let secondary_db = Some(
                 AptosDB::open(
                     db_dir.as_path(),
                     false,
@@ -94,16 +100,18 @@ impl FastSyncStorageWrapper {
                     config.storage.max_num_nodes_per_lru_cache_shard,
                 )
                 .map_err(|err| anyhow!("fast sync DB failed to open {}", err))?,
-            )
+            );
+            Ok((
+                None,
+                Some(FastSyncStorageWrapper {
+                    temporary_db_with_genesis: db_main,
+                    db_for_fast_sync: secondary_db,
+                    fast_sync_status: Arc::new(RwLock::new(FastSyncStatus::UNKNOWN)),
+                }),
+            ))
         } else {
-            None
-        };
-
-        Ok(Self {
-            db_main,
-            db_secondary,
-            fast_sync_status: status,
-        })
+            Ok((Some(db_main), None))
+        }
     }
 
     pub fn get_fast_sync_status(&self) -> Result<FastSyncStatus> {
@@ -119,69 +127,36 @@ impl FastSyncStorageWrapper {
         status == FastSyncStatus::FINISHED
     }
 
-    pub(crate) fn get_transaction_store(&self) -> Result<&TransactionStore> {
+    /// Check if the fast sync started already
+    fn is_fast_sync_bootstrap_started(&self) -> bool {
+        let status = self.get_fast_sync_status().unwrap();
+        status == FastSyncStatus::STARTED
+    }
+
+    /// we write to db main until fast sync starts, then we write to db secondary
+    /// we read the main DB until fast sync finishes, then we read from db secondary
+    /// during the fast sync, we read from db main and write to db secondary
+    pub(crate) fn get_aptos_db_read_ref(&self) -> &AptosDB {
         if self.is_fast_sync_bootstrap_finished() {
-            Ok(&self
-                .db_secondary
+            self.db_for_fast_sync
                 .as_ref()
                 .expect("db_secondary is not initialized")
-                .transaction_store)
         } else {
-            Ok(&self.db_main.transaction_store)
+            &self.temporary_db_with_genesis
         }
     }
 
-    pub(crate) fn get_ledger_store(&self) -> Result<&LedgerStore> {
-        if self.is_fast_sync_bootstrap_finished() {
-            Ok(&self
-                .db_secondary
+    pub(crate) fn get_aptos_db_write_ref(&self) -> &AptosDB {
+        if self.is_fast_sync_bootstrap_started() || self.is_fast_sync_bootstrap_finished() {
+            self.db_for_fast_sync
                 .as_ref()
                 .expect("db_secondary is not initialized")
-                .ledger_store)
         } else {
-            Ok(&self.db_main.ledger_store)
+            &self.temporary_db_with_genesis
         }
     }
 
-    pub(crate) fn get_event_store(&self) -> Result<&EventStore> {
-        if self.is_fast_sync_bootstrap_finished() {
-            Ok(&self
-                .db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .event_store)
-        } else {
-            Ok(&self.db_main.event_store)
-        }
-    }
-
-    pub(crate) fn get_state_store_arc(&self) -> Result<Arc<StateStore>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            Ok(Arc::clone(
-                &self
-                    .db_secondary
-                    .as_ref()
-                    .expect("db_secondary is not initialized")
-                    .state_store,
-            ))
-        } else {
-            Ok(Arc::clone(&self.db_main.state_store))
-        }
-    }
-
-    pub(crate) fn get_state_store(&self) -> Result<&StateStore> {
-        if self.is_fast_sync_bootstrap_finished() {
-            Ok(&self
-                .db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .state_store)
-        } else {
-            Ok(&self.db_main.state_store)
-        }
-    }
-
-    /// Provide an iterator to underly data for reading transactions
+    /// Provide an iterator to underlying data for reading transactions
     pub fn get_transaction_iter(
         &self,
         start_version: Version,
@@ -189,16 +164,22 @@ impl FastSyncStorageWrapper {
     ) -> Result<
         impl Iterator<Item = Result<(Transaction, TransactionInfo, Vec<ContractEvent>, WriteSet)>> + '_,
     > {
-        let txn_store = self.get_transaction_store()?;
-        let ledger_store = self.get_ledger_store()?;
-        let event_store = self.get_event_store()?;
-
-        let txn_iter = txn_store.get_transaction_iter(start_version, num_transactions)?;
-        let mut txn_info_iter =
-            ledger_store.get_transaction_info_iter(start_version, num_transactions)?;
-        let mut event_vec_iter =
-            event_store.get_events_by_version_iter(start_version, num_transactions)?;
-        let mut write_set_iter = txn_store.get_write_set_iter(start_version, num_transactions)?;
+        let txn_iter = self
+            .get_aptos_db_read_ref()
+            .transaction_store
+            .get_transaction_iter(start_version, num_transactions)?;
+        let mut txn_info_iter = self
+            .get_aptos_db_read_ref()
+            .ledger_store
+            .get_transaction_info_iter(start_version, num_transactions)?;
+        let mut event_vec_iter = self
+            .get_aptos_db_read_ref()
+            .event_store
+            .get_events_by_version_iter(start_version, num_transactions)?;
+        let mut write_set_iter = self
+            .get_aptos_db_read_ref()
+            .transaction_store
+            .get_write_set_iter(start_version, num_transactions)?;
 
         let zipped = txn_iter.enumerate().map(move |(idx, txn_res)| {
             let version = start_version + idx as u64; // overflow is impossible since it's check upon txn_iter construction.
@@ -235,7 +216,7 @@ impl FastSyncStorageWrapper {
             first_version,
             last_version
         );
-        let ledger_store = self.get_ledger_store()?;
+        let ledger_store = self.get_aptos_db_read_ref().ledger_store.clone();
         let num_transactions = last_version - first_version + 1;
         let epoch = ledger_store.get_epoch(last_version)?;
         let ledger_info = ledger_store.get_latest_ledger_info_in_epoch(epoch)?;
@@ -253,7 +234,9 @@ impl FastSyncStorageWrapper {
         version: Version,
     ) -> Result<Box<dyn Iterator<Item = Result<(StateKey, StateValue)>> + Send + Sync>> {
         let iterator = self
-            .get_state_store_arc()?
+            .get_aptos_db_read_ref()
+            .state_store
+            .clone()
             .get_state_key_and_value_iter(version, HashValue::zero())?
             .enumerate()
             .map(move |(idx, res)| {
@@ -270,14 +253,18 @@ impl FastSyncStorageWrapper {
         rightmost_key: HashValue,
         version: Version,
     ) -> Result<SparseMerkleRangeProof> {
-        self.get_state_store()?
+        self.get_aptos_db_read_ref()
+            .state_store
+            .clone()
             .get_value_range_proof(rightmost_key, version)
     }
 
     /// Gets the epoch, committed version, and synced version of the DB.
     pub fn get_db_state(&self) -> Result<Option<DbState>> {
         Ok(self
-            .get_ledger_store()?
+            .get_aptos_db_read_ref()
+            .ledger_store
+            .clone()
             .get_latest_ledger_info_option()
             .map(|li| DbState {
                 epoch: li.ledger_info().epoch(),
@@ -291,7 +278,7 @@ impl FastSyncStorageWrapper {
         &self,
         version: Version,
     ) -> Result<(TransactionInfoWithProof, LedgerInfoWithSignatures)> {
-        let ledger_store = self.get_ledger_store()?;
+        let ledger_store = self.get_aptos_db_read_ref().ledger_store.clone();
         let epoch = ledger_store.get_epoch(version)?;
         let ledger_info = ledger_store.get_latest_ledger_info_in_epoch(epoch)?;
         let txn_info = ledger_store
@@ -306,7 +293,8 @@ impl FastSyncStorageWrapper {
         end_epoch: u64,
     ) -> Result<impl Iterator<Item = Result<LedgerInfoWithSignatures>> + '_> {
         Ok(self
-            .get_ledger_store()?
+            .get_aptos_db_read_ref()
+            .ledger_store
             .get_epoch_ending_ledger_info_iter(start_epoch, end_epoch)?
             .enumerate()
             .map(move |(idx, li)| {
@@ -322,11 +310,12 @@ impl DbWriter for FastSyncStorageWrapper {
         version: Version,
         expected_root_hash: HashValue,
     ) -> Result<Box<dyn StateSnapshotReceiver<StateKey, StateValue>>> {
-        let status = self.get_fast_sync_status()?;
-        assert!(status == FastSyncStatus::STARTED);
-        self.db_secondary
-            .as_ref()
-            .expect("db_secondary is None")
+        let mut status = self
+            .fast_sync_status
+            .write()
+            .expect("Failed to get write lock of fast sync status");
+        *status = FastSyncStatus::STARTED;
+        self.get_aptos_db_write_ref()
             .get_state_snapshot_receiver(version, expected_root_hash)
     }
 
@@ -338,10 +327,11 @@ impl DbWriter for FastSyncStorageWrapper {
     ) -> Result<()> {
         let status = self.get_fast_sync_status()?;
         assert_eq!(status, FastSyncStatus::STARTED);
-        self.db_secondary
-            .as_ref()
-            .expect("db_secondary is None")
-            .finalize_state_snapshot(version, output_with_proof, ledger_infos)?;
+        self.get_aptos_db_write_ref().finalize_state_snapshot(
+            version,
+            output_with_proof,
+            ledger_infos,
+        )?;
         let mut status = self
             .fast_sync_status
             .write()
@@ -359,29 +349,14 @@ impl DbWriter for FastSyncStorageWrapper {
         sync_commit: bool,
         latest_in_memory_state: StateDelta,
     ) -> Result<()> {
-        let status = self.get_fast_sync_status()?;
-        if status == FastSyncStatus::STARTED || status == FastSyncStatus::FINISHED {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is None")
-                .save_transactions(
-                    txns_to_commit,
-                    first_version,
-                    base_state_version,
-                    ledger_info_with_sigs,
-                    sync_commit,
-                    latest_in_memory_state,
-                )
-        } else {
-            self.db_main.save_transactions(
-                txns_to_commit,
-                first_version,
-                base_state_version,
-                ledger_info_with_sigs,
-                sync_commit,
-                latest_in_memory_state,
-            )
-        }
+        self.get_aptos_db_write_ref().save_transactions(
+            txns_to_commit,
+            first_version,
+            base_state_version,
+            ledger_info_with_sigs,
+            sync_commit,
+            latest_in_memory_state,
+        )
     }
 
     fn save_transaction_block(
@@ -395,715 +370,249 @@ impl DbWriter for FastSyncStorageWrapper {
         block_state_updates: ShardedStateUpdates,
         sharded_state_cache: &ShardedStateCache,
     ) -> Result<()> {
-        let status = self.get_fast_sync_status()?;
-        if status == FastSyncStatus::STARTED || status == FastSyncStatus::FINISHED {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is None")
-                .save_transaction_block(
-                    txns_to_commit,
-                    first_version,
-                    base_state_version,
-                    ledger_info_with_sigs,
-                    sync_commit,
-                    latest_in_memory_state,
-                    block_state_updates,
-                    sharded_state_cache,
-                )
-        } else {
-            self.db_main.save_transaction_block(
-                txns_to_commit,
-                first_version,
-                base_state_version,
-                ledger_info_with_sigs,
-                sync_commit,
-                latest_in_memory_state,
-                block_state_updates,
-                sharded_state_cache,
-            )
-        }
+        self.get_aptos_db_write_ref().save_transaction_block(
+            txns_to_commit,
+            first_version,
+            base_state_version,
+            ledger_info_with_sigs,
+            sync_commit,
+            latest_in_memory_state,
+            block_state_updates,
+            sharded_state_cache,
+        )
     }
 }
 
+macro_rules! aptos_db_read_fn {
+    ($(fn $name:ident(&self $(, $arg: ident : $ty: ty $(,)?)*) -> $return_type:ty,)+) => {
+        $(fn $name(&self, $($arg: $ty),*) -> $return_type {
+            self.get_aptos_db_read_ref().$name($($arg),*)
+        })+
+    };
+}
+
 impl DbReader for FastSyncStorageWrapper {
+    aptos_db_read_fn!(
+        fn get_transactions(
+            &self,
+            start_version: Version,
+            batch_size: u64,
+            ledger_version: Version,
+            fetch_events: bool,
+        ) -> Result<TransactionListWithProof>,
+
+        fn get_transaction_by_hash(
+            &self,
+            hash: HashValue,
+            ledger_version: Version,
+            fetch_events: bool,
+        ) -> Result<Option<TransactionWithProof>>,
+
+        fn get_transaction_by_version(
+            &self,
+            version: Version,
+            ledger_version: Version,
+            fetch_events: bool,
+        ) -> Result<TransactionWithProof>,
+
+        fn get_first_txn_version(&self) -> Result<Option<Version>>,
+
+        fn get_first_viable_txn_version(&self) -> Result<Version>,
+
+        fn get_first_write_set_version(&self) -> Result<Option<Version>>,
+
+        fn get_transaction_outputs(
+            &self,
+            start_version: Version,
+            limit: u64,
+            ledger_version: Version,
+        ) -> Result<TransactionOutputListWithProof>,
+
+        fn get_events(
+            &self,
+            event_key: &EventKey,
+            start: u64,
+            order: Order,
+            limit: u64,
+            ledger_version: Version,
+            ) -> Result<Vec<EventWithVersion>>,
+
+        fn get_transaction_iterator(
+            &self,
+            start_version: Version,
+            limit: u64,
+            ) -> Result<Box<dyn Iterator<Item = Result<Transaction>> + '_>>,
+
+        fn get_transaction_info_iterator(
+            &self,
+            start_version: Version,
+            limit: u64,
+        ) -> Result<Box<dyn Iterator<Item = Result<TransactionInfo>> + '_>>,
+
+        fn get_events_iterator(
+            &self,
+            start_version: Version,
+            limit: u64,
+        ) -> Result<Box<dyn Iterator<Item = Result<Vec<ContractEvent>>> + '_>>,
+
+        fn get_write_set_iterator(
+            &self,
+            start_version: Version,
+            limit: u64,
+        ) -> Result<Box<dyn Iterator<Item = Result<WriteSet>> + '_>>,
+
+        fn get_transaction_accumulator_range_proof(
+            &self,
+            start_version: Version,
+            limit: u64,
+            ledger_version: Version,
+        ) -> Result<TransactionAccumulatorRangeProof>,
+
+        fn get_block_timestamp(&self, version: Version) -> Result<u64>,
+
+        fn get_next_block_event(&self, version: Version) -> Result<(Version, NewBlockEvent)>,
+
+        fn get_block_info_by_version(
+            &self,
+            version: Version,
+        ) -> Result<(Version, Version, NewBlockEvent)>,
+
+        fn get_block_info_by_height(&self, height: u64) -> Result<(Version, Version, NewBlockEvent)>,
+
+        fn get_last_version_before_timestamp(
+            &self,
+            _timestamp: u64,
+            _ledger_version: Version,
+        ) -> Result<Version>,
+
+        fn get_latest_epoch_state(&self) -> Result<EpochState>,
+
+        fn get_prefixed_state_value_iterator(
+            &self,
+            key_prefix: &StateKeyPrefix,
+            cursor: Option<&StateKey>,
+            version: Version,
+        ) -> Result<Box<dyn Iterator<Item = Result<(StateKey, StateValue)>> + '_>>,
+
+        fn get_latest_ledger_info_option(&self) -> Result<Option<LedgerInfoWithSignatures>>,
+
+        fn get_latest_ledger_info(&self) -> Result<LedgerInfoWithSignatures>,
+
+        fn get_latest_version(&self) -> Result<Version>,
+
+        fn get_latest_state_checkpoint_version(&self) -> Result<Option<Version>>,
+
+        fn get_state_snapshot_before(
+            &self,
+            next_version: Version,
+        ) -> Result<Option<(Version, HashValue)>>,
+
+        fn get_latest_commit_metadata(&self) -> Result<(Version, u64)>,
+
+        fn get_account_transaction(
+            &self,
+            address: AccountAddress,
+            seq_num: u64,
+            include_events: bool,
+            ledger_version: Version,
+        ) -> Result<Option<TransactionWithProof>>,
+
+        fn get_account_transactions(
+            &self,
+            address: AccountAddress,
+            seq_num: u64,
+            limit: u64,
+            include_events: bool,
+            ledger_version: Version,
+        ) -> Result<AccountTransactionsWithProof>,
+
+        fn get_state_proof_with_ledger_info(
+            &self,
+            known_version: u64,
+            ledger_info: LedgerInfoWithSignatures,
+        ) -> Result<StateProof>,
+
+        fn get_state_proof(&self, known_version: u64) -> Result<StateProof>,
+
+        fn get_state_value_by_version(
+            &self,
+            state_key: &StateKey,
+            version: Version,
+        ) -> Result<Option<StateValue>>,
+
+        fn get_state_value_with_version_by_version(
+            &self,
+            state_key: &StateKey,
+            version: Version,
+        ) -> Result<Option<(Version, StateValue)>>,
+
+        fn get_state_proof_by_version_ext(
+            &self,
+            state_key: &StateKey,
+            version: Version,
+        ) -> Result<SparseMerkleProofExt>,
+
+        fn get_state_value_with_proof_by_version_ext(
+            &self,
+            state_key: &StateKey,
+            version: Version,
+        ) -> Result<(Option<StateValue>, SparseMerkleProofExt)>,
+
+        fn get_state_value_with_proof_by_version(
+            &self,
+            state_key: &StateKey,
+            version: Version,
+        ) -> Result<(Option<StateValue>, SparseMerkleProof)>,
+
+        fn get_latest_executed_trees(&self) -> Result<ExecutedTrees>,
+
+        fn get_epoch_ending_ledger_info(&self, known_version: u64) -> Result<LedgerInfoWithSignatures>,
+
+        fn get_accumulator_root_hash(&self, _version: Version) -> Result<HashValue>,
+
+        fn get_accumulator_consistency_proof(
+            &self,
+            _client_known_version: Option<Version>,
+            _ledger_version: Version,
+        ) -> Result<AccumulatorConsistencyProof>,
+
+        fn get_accumulator_summary(
+            &self,
+            ledger_version: Version,
+        ) -> Result<TransactionAccumulatorSummary>,
+
+        fn get_state_leaf_count(&self, version: Version) -> Result<usize>,
+
+        fn get_state_value_chunk_with_proof(
+            &self,
+            version: Version,
+            start_idx: usize,
+            chunk_size: usize,
+        ) -> Result<StateValueChunkWithProof>,
+
+        fn is_state_merkle_pruner_enabled(&self) -> Result<bool>,
+
+        fn get_epoch_snapshot_prune_window(&self) -> Result<usize>,
+
+        fn is_ledger_pruner_enabled(&self) -> Result<bool>,
+
+        fn get_ledger_prune_window(&self) -> Result<usize>,
+
+        fn get_table_info(&self, handle: TableHandle) -> Result<TableInfo>,
+
+        fn indexer_enabled(&self) -> bool,
+
+        fn get_state_storage_usage(&self, version: Option<Version>) -> Result<StateStorageUsage>,
+    );
+
     fn get_epoch_ending_ledger_infos(
         &self,
         start_epoch: u64,
         end_epoch: u64,
     ) -> Result<EpochChangeProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            let (ledger_info_with_sigs, more) = self
-                .db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_epoch_ending_ledger_infos(start_epoch, end_epoch)?;
-            Ok(EpochChangeProof::new(ledger_info_with_sigs, more))
-        } else {
-            let (ledger_info_with_sigs, more) = self
-                .db_main
-                .get_epoch_ending_ledger_infos(start_epoch, end_epoch)?;
-            Ok(EpochChangeProof::new(ledger_info_with_sigs, more))
-        }
-    }
-
-    fn get_transactions(
-        &self,
-        start_version: Version,
-        batch_size: u64,
-        ledger_version: Version,
-        fetch_events: bool,
-    ) -> Result<TransactionListWithProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transactions(start_version, batch_size, ledger_version, fetch_events)
-        } else {
-            self.db_main
-                .get_transactions(start_version, batch_size, ledger_version, fetch_events)
-        }
-    }
-
-    fn get_transaction_by_hash(
-        &self,
-        hash: HashValue,
-        ledger_version: Version,
-        fetch_events: bool,
-    ) -> Result<Option<TransactionWithProof>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_by_hash(hash, ledger_version, fetch_events)
-        } else {
-            self.db_main
-                .get_transaction_by_hash(hash, ledger_version, fetch_events)
-        }
-    }
-
-    fn get_transaction_by_version(
-        &self,
-        version: Version,
-        ledger_version: Version,
-        fetch_events: bool,
-    ) -> Result<TransactionWithProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_by_version(version, ledger_version, fetch_events)
-        } else {
-            self.db_main
-                .get_transaction_by_version(version, ledger_version, fetch_events)
-        }
-    }
-
-    fn get_first_txn_version(&self) -> Result<Option<Version>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_first_txn_version()
-        } else {
-            self.db_main.get_first_txn_version()
-        }
-    }
-
-    fn get_first_viable_txn_version(&self) -> Result<Version> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_first_viable_txn_version()
-        } else {
-            self.db_main.get_first_viable_txn_version()
-        }
-    }
-
-    fn get_first_write_set_version(&self) -> Result<Option<Version>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_first_write_set_version()
-        } else {
-            self.db_main.get_first_write_set_version()
-        }
-    }
-
-    fn get_transaction_outputs(
-        &self,
-        start_version: Version,
-        limit: u64,
-        ledger_version: Version,
-    ) -> Result<TransactionOutputListWithProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_outputs(start_version, limit, ledger_version)
-        } else {
-            self.db_main
-                .get_transaction_outputs(start_version, limit, ledger_version)
-        }
-    }
-
-    fn get_events(
-        &self,
-        event_key: &EventKey,
-        start: u64,
-        order: Order,
-        limit: u64,
-        ledger_version: Version,
-    ) -> Result<Vec<EventWithVersion>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_events(event_key, start, order, limit, ledger_version)
-        } else {
-            self.db_main
-                .get_events(event_key, start, order, limit, ledger_version)
-        }
-    }
-
-    fn get_transaction_iterator(
-        &self,
-        start_version: Version,
-        limit: u64,
-    ) -> Result<Box<dyn Iterator<Item = Result<Transaction>> + '_>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_iterator(start_version, limit)
-        } else {
-            self.db_main.get_transaction_iterator(start_version, limit)
-        }
-    }
-
-    fn get_transaction_info_iterator(
-        &self,
-        start_version: Version,
-        limit: u64,
-    ) -> Result<Box<dyn Iterator<Item = Result<TransactionInfo>> + '_>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_info_iterator(start_version, limit)
-        } else {
-            self.db_main
-                .get_transaction_info_iterator(start_version, limit)
-        }
-    }
-
-    fn get_events_iterator(
-        &self,
-        start_version: Version,
-        limit: u64,
-    ) -> Result<Box<dyn Iterator<Item = Result<Vec<ContractEvent>>> + '_>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_events_iterator(start_version, limit)
-        } else {
-            self.db_main.get_events_iterator(start_version, limit)
-        }
-    }
-
-    fn get_write_set_iterator(
-        &self,
-        start_version: Version,
-        limit: u64,
-    ) -> Result<Box<dyn Iterator<Item = Result<WriteSet>> + '_>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_write_set_iterator(start_version, limit)
-        } else {
-            self.get_write_set_iterator(start_version, limit)
-        }
-    }
-
-    fn get_transaction_accumulator_range_proof(
-        &self,
-        start_version: Version,
-        limit: u64,
-        ledger_version: Version,
-    ) -> Result<TransactionAccumulatorRangeProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_transaction_accumulator_range_proof(start_version, limit, ledger_version)
-        } else {
-            self.db_main.get_transaction_accumulator_range_proof(
-                start_version,
-                limit,
-                ledger_version,
-            )
-        }
-    }
-
-    fn get_block_timestamp(&self, version: Version) -> Result<u64> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_block_timestamp(version)
-        } else {
-            self.db_main.get_block_timestamp(version)
-        }
-    }
-
-    fn get_next_block_event(&self, version: Version) -> Result<(Version, NewBlockEvent)> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_next_block_event(version)
-        } else {
-            self.db_main.get_next_block_event(version)
-        }
-    }
-
-    fn get_block_info_by_version(
-        &self,
-        version: Version,
-    ) -> Result<(Version, Version, NewBlockEvent)> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_block_info_by_version(version)
-        } else {
-            self.db_main.get_block_info_by_version(version)
-        }
-    }
-
-    fn get_block_info_by_height(&self, height: u64) -> Result<(Version, Version, NewBlockEvent)> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_block_info_by_height(height)
-        } else {
-            self.db_main.get_block_info_by_height(height)
-        }
-    }
-
-    fn get_last_version_before_timestamp(
-        &self,
-        _timestamp: u64,
-        _ledger_version: Version,
-    ) -> Result<Version> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_last_version_before_timestamp(_timestamp, _ledger_version)
-        } else {
-            self.db_main
-                .get_last_version_before_timestamp(_timestamp, _ledger_version)
-        }
-    }
-
-    fn get_latest_epoch_state(&self) -> Result<EpochState> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_latest_epoch_state()
-        } else {
-            self.db_main.get_latest_epoch_state()
-        }
-    }
-
-    fn get_prefixed_state_value_iterator(
-        &self,
-        key_prefix: &StateKeyPrefix,
-        cursor: Option<&StateKey>,
-        version: Version,
-    ) -> Result<Box<dyn Iterator<Item = Result<(StateKey, StateValue)>> + '_>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_prefixed_state_value_iterator(key_prefix, cursor, version)
-        } else {
-            self.db_main
-                .get_prefixed_state_value_iterator(key_prefix, cursor, version)
-        }
-    }
-
-    fn get_latest_ledger_info_option(&self) -> Result<Option<LedgerInfoWithSignatures>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_latest_ledger_info_option()
-        } else {
-            let res = self.db_main.get_latest_ledger_info_option()?;
-            Ok(res)
-        }
-    }
-
-    fn get_latest_ledger_info(&self) -> Result<LedgerInfoWithSignatures> {
-        self.get_latest_ledger_info_option()
-            .and_then(|opt| opt.ok_or_else(|| format_err!("Latest LedgerInfo not found.")))
-    }
-
-    fn get_latest_version(&self) -> Result<Version> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_latest_version()
-        } else {
-            self.db_main.get_latest_version()
-        }
-    }
-
-    fn get_latest_state_checkpoint_version(&self) -> Result<Option<Version>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_latest_state_checkpoint_version()
-        } else {
-            self.db_main.get_latest_state_checkpoint_version()
-        }
-    }
-
-    fn get_state_snapshot_before(
-        &self,
-        next_version: Version,
-    ) -> Result<Option<(Version, HashValue)>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_snapshot_before(next_version)
-        } else {
-            self.db_main.get_state_snapshot_before(next_version)
-        }
-    }
-
-    fn get_latest_commit_metadata(&self) -> Result<(Version, u64)> {
-        let ledger_info_with_sig = self.get_latest_ledger_info()?;
-        let ledger_info = ledger_info_with_sig.ledger_info();
-        Ok((ledger_info.version(), ledger_info.timestamp_usecs()))
-    }
-
-    fn get_account_transaction(
-        &self,
-        address: AccountAddress,
-        seq_num: u64,
-        include_events: bool,
-        ledger_version: Version,
-    ) -> Result<Option<TransactionWithProof>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_account_transaction(address, seq_num, include_events, ledger_version)
-        } else {
-            self.db_main
-                .get_account_transaction(address, seq_num, include_events, ledger_version)
-        }
-    }
-
-    fn get_account_transactions(
-        &self,
-        address: AccountAddress,
-        seq_num: u64,
-        limit: u64,
-        include_events: bool,
-        ledger_version: Version,
-    ) -> Result<AccountTransactionsWithProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_account_transactions(address, seq_num, limit, include_events, ledger_version)
-        } else {
-            self.db_main.get_account_transactions(
-                address,
-                seq_num,
-                limit,
-                include_events,
-                ledger_version,
-            )
-        }
-    }
-
-    fn get_state_proof_with_ledger_info(
-        &self,
-        known_version: u64,
-        ledger_info: LedgerInfoWithSignatures,
-    ) -> Result<StateProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_proof_with_ledger_info(known_version, ledger_info)
-        } else {
-            self.db_main
-                .get_state_proof_with_ledger_info(known_version, ledger_info)
-        }
-    }
-
-    fn get_state_proof(&self, known_version: u64) -> Result<StateProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_proof(known_version)
-        } else {
-            self.db_main.get_state_proof(known_version)
-        }
-    }
-
-    fn get_state_value_by_version(
-        &self,
-        state_key: &StateKey,
-        version: Version,
-    ) -> Result<Option<StateValue>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_value_by_version(state_key, version)
-        } else {
-            self.db_main.get_state_value_by_version(state_key, version)
-        }
-    }
-
-    fn get_state_value_with_version_by_version(
-        &self,
-        state_key: &StateKey,
-        version: Version,
-    ) -> Result<Option<(Version, StateValue)>> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_value_with_version_by_version(state_key, version)
-        } else {
-            self.db_main
-                .get_state_value_with_version_by_version(state_key, version)
-        }
-    }
-
-    fn get_state_proof_by_version_ext(
-        &self,
-        state_key: &StateKey,
-        version: Version,
-    ) -> Result<SparseMerkleProofExt> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_proof_by_version_ext(state_key, version)
-        } else {
-            self.db_main
-                .get_state_proof_by_version_ext(state_key, version)
-        }
-    }
-
-    fn get_state_value_with_proof_by_version_ext(
-        &self,
-        state_key: &StateKey,
-        version: Version,
-    ) -> Result<(Option<StateValue>, SparseMerkleProofExt)> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_value_with_proof_by_version_ext(state_key, version)
-        } else {
-            self.db_main
-                .get_state_value_with_proof_by_version_ext(state_key, version)
-        }
-    }
-
-    fn get_state_value_with_proof_by_version(
-        &self,
-        state_key: &StateKey,
-        version: Version,
-    ) -> Result<(Option<StateValue>, SparseMerkleProof)> {
-        self.get_state_value_with_proof_by_version_ext(state_key, version)
-            .map(|(value, proof_ext)| (value, proof_ext.into()))
-    }
-
-    fn get_latest_executed_trees(&self) -> Result<ExecutedTrees> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_latest_executed_trees()
-        } else {
-            self.db_main.get_latest_executed_trees()
-        }
-    }
-
-    fn get_epoch_ending_ledger_info(&self, known_version: u64) -> Result<LedgerInfoWithSignatures> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_epoch_ending_ledger_info(known_version)
-        } else {
-            self.db_main.get_epoch_ending_ledger_info(known_version)
-        }
-    }
-
-    fn get_accumulator_root_hash(&self, _version: Version) -> Result<HashValue> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_accumulator_root_hash(_version)
-        } else {
-            self.db_main.get_accumulator_root_hash(_version)
-        }
-    }
-
-    fn get_accumulator_consistency_proof(
-        &self,
-        _client_known_version: Option<Version>,
-        _ledger_version: Version,
-    ) -> Result<AccumulatorConsistencyProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_accumulator_consistency_proof(_client_known_version, _ledger_version)
-        } else {
-            self.db_main
-                .get_accumulator_consistency_proof(_client_known_version, _ledger_version)
-        }
-    }
-
-    fn get_accumulator_summary(
-        &self,
-        ledger_version: Version,
-    ) -> Result<TransactionAccumulatorSummary> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_accumulator_summary(ledger_version)
-        } else {
-            self.db_main.get_accumulator_summary(ledger_version)
-        }
-    }
-
-    fn get_state_leaf_count(&self, version: Version) -> Result<usize> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_leaf_count(version)
-        } else {
-            self.db_main.get_state_leaf_count(version)
-        }
-    }
-
-    fn get_state_value_chunk_with_proof(
-        &self,
-        version: Version,
-        start_idx: usize,
-        chunk_size: usize,
-    ) -> Result<StateValueChunkWithProof> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_value_chunk_with_proof(version, start_idx, chunk_size)
-        } else {
-            self.db_main
-                .get_state_value_chunk_with_proof(version, start_idx, chunk_size)
-        }
-    }
-
-    fn is_state_merkle_pruner_enabled(&self) -> Result<bool> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .is_state_merkle_pruner_enabled()
-        } else {
-            self.db_main.is_state_merkle_pruner_enabled()
-        }
-    }
-
-    fn get_epoch_snapshot_prune_window(&self) -> Result<usize> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_epoch_snapshot_prune_window()
-        } else {
-            self.db_main.get_epoch_snapshot_prune_window()
-        }
-    }
-
-    fn is_ledger_pruner_enabled(&self) -> Result<bool> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .is_ledger_pruner_enabled()
-        } else {
-            self.db_main.is_ledger_pruner_enabled()
-        }
-    }
-
-    fn get_ledger_prune_window(&self) -> Result<usize> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_ledger_prune_window()
-        } else {
-            self.get_ledger_prune_window()
-        }
-    }
-
-    fn get_table_info(&self, handle: TableHandle) -> Result<TableInfo> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_table_info(handle)
-        } else {
-            self.db_main.get_table_info(handle)
-        }
-    }
-
-    fn indexer_enabled(&self) -> bool {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .indexer_enabled()
-        } else {
-            self.db_main.indexer_enabled()
-        }
-    }
-
-    fn get_state_storage_usage(&self, version: Option<Version>) -> Result<StateStorageUsage> {
-        if self.is_fast_sync_bootstrap_finished() {
-            self.db_secondary
-                .as_ref()
-                .expect("db_secondary is not initialized")
-                .get_state_storage_usage(version)
-        } else {
-            self.db_main.get_state_storage_usage(version)
-        }
+        let (ledger_info, flag) = self
+            .get_aptos_db_read_ref()
+            .get_epoch_ending_ledger_infos(start_epoch, end_epoch)?;
+        Ok(EpochChangeProof::new(ledger_info, flag))
     }
 }

@@ -2,45 +2,53 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{anyhow, Result};
-use aptos_backup_service::start_backup_service_with_fast_sync_wrapper;
+use aptos_backup_service::{start_backup_service, start_backup_service_with_fast_sync_wrapper};
 use aptos_config::{config::NodeConfig, utils::get_genesis_txn};
 use aptos_db::{fast_sync_aptos_db::FastSyncStorageWrapper, AptosDB};
 use aptos_executor::db_bootstrapper::maybe_bootstrap;
 use aptos_logger::{debug, info};
-use aptos_storage_interface::{DbReader, DbReaderWriter, FastSyncStatus};
+use aptos_storage_interface::{DbReader, DbReaderWriter};
 use aptos_types::waypoint::Waypoint;
 use aptos_vm::AptosVM;
-use std::{
-    fs,
-    path::Path,
-    sync::{Arc, RwLock},
-    time::Instant,
-};
+use std::{fs, path::Path, sync::Arc, time::Instant};
 use tokio::runtime::Runtime;
+
+pub(crate) fn maybe_apply_genesis(db_rw: &DbReaderWriter, node_config: &NodeConfig) -> Result<()> {
+    let genesis_waypoint = node_config.base.waypoint.genesis_waypoint();
+    if let Some(genesis) = get_genesis_txn(node_config) {
+        maybe_bootstrap::<AptosVM>(db_rw, genesis, genesis_waypoint)
+            .map_err(|err| anyhow!("DB failed to bootstrap {}", err))?;
+    } else {
+        info ! ("Genesis txn not provided! This is fine only if you don't expect to apply it. Otherwise, the config is incorrect!");
+    }
+    Ok(())
+}
 
 #[cfg(not(feature = "consensus-only-perf-test"))]
 pub(crate) fn bootstrap_db(
     node_config: &NodeConfig,
-) -> Result<(Arc<FastSyncStorageWrapper>, DbReaderWriter, Option<Runtime>)> {
-    let fast_sync_status = Arc::new(RwLock::new(FastSyncStatus::UNKNOWN));
-    let db = FastSyncStorageWrapper::new_fast_sync_aptos_db(node_config, fast_sync_status.clone())?;
-    let (aptos_db, db_rw) = DbReaderWriter::wrap_with_status(db, Arc::clone(&fast_sync_status));
+) -> Result<(Arc<dyn DbReader>, DbReaderWriter, Option<Runtime>)> {
+    let (aptos_db, fast_sync_db_wrapper) = FastSyncStorageWrapper::initialize_dbs(node_config)?;
 
-    // TODO(bowu): fully decouple genesis from fast sync
-    // If there's a genesis txn and waypoint, commit it if the result matches.
-    let genesis_waypoint = node_config.base.waypoint.genesis_waypoint();
-    if let Some(genesis) = get_genesis_txn(node_config) {
-        maybe_bootstrap::<AptosVM>(&db_rw, genesis, genesis_waypoint)
-            .map_err(|err| anyhow!("DB failed to bootstrap {}", err))?;
+    let (aptos_db_reader, db_rw, backup_service) = if let Some(db) = aptos_db {
+        let (db_arc, db_rw) = DbReaderWriter::wrap(db);
+        let db_backup_service =
+            start_backup_service(node_config.storage.backup_service_address, db_arc.clone());
+        (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
     } else {
-        info!("Genesis txn not provided! This is fine only if you don't expect to apply it. Otherwise, the config is incorrect!");
-    }
+        let (db_arc, db_rw) = DbReaderWriter::wrap(
+            fast_sync_db_wrapper.expect("Fast sync db wrapper should not be None"),
+        );
+        let db_backup_service = start_backup_service_with_fast_sync_wrapper(
+            node_config.storage.backup_service_address,
+            db_arc.clone(),
+        );
+        (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
+    };
 
-    let db_backup_service = start_backup_service_with_fast_sync_wrapper(
-        node_config.storage.backup_service_address,
-        aptos_db.clone(),
-    );
-    Ok((aptos_db, db_rw, Some(db_backup_service)))
+    maybe_apply_genesis(&db_rw, node_config)?;
+
+    Ok((aptos_db_reader, db_rw, backup_service))
 }
 
 /// In consensus-only mode, return a in-memory based [FakeAptosDB] and
@@ -48,26 +56,20 @@ pub(crate) fn bootstrap_db(
 #[cfg(feature = "consensus-only-perf-test")]
 pub(crate) fn bootstrap_db(
     node_config: &NodeConfig,
-) -> Result<(
-    Arc<aptos_db::fake_aptosdb::FakeAptosDB>,
-    DbReaderWriter,
-    Option<Runtime>,
-)> {
+) -> Result<(Arc<dyn DbReader>, DbReaderWriter, Option<Runtime>)> {
     use aptos_db::fake_aptosdb::FakeAptosDB;
-    let fast_sync_status = Arc::new(RwLock::new(FastSyncStatus::UNKNOWN));
-    let db = FastSyncStorageWrapper::new_fast_sync_aptos_db(node_config, fast_sync_status.clone())?;
-    let (aptos_db, db_rw) =
-        DbReaderWriter::wrap_with_status(FakeAptosDB::new(db), Arc::clone(&fast_sync_status));
+    let (aptos_db, fast_sync_db_wrapper) = FastSyncStorageWrapper::initialize_dbs(node_config)?;
 
-    // TODO(bowu): fully decouple genesis from fast sync
-    // If there's a genesis txn and waypoint, commit it if the result matches.
-    let genesis_waypoint = node_config.base.waypoint.genesis_waypoint();
-    if let Some(genesis) = get_genesis_txn(node_config) {
-        maybe_bootstrap::<AptosVM>(&db_rw, genesis, genesis_waypoint)
-            .map_err(|err| anyhow!("DB failed to bootstrap {}", err))?;
+    let (aptos_db, db_rw) = if let Some(db) = aptos_db {
+        DbReaderWriter::wrap(FakeAptosDB::new(db))
     } else {
-        info!("Genesis txn not provided! This is fine only if you don't expect to apply it. Otherwise, the config is incorrect!");
-    }
+        DbReaderWriter::wrap(FakeAptosDB::new(
+            fast_sync_db_wrapper.expect("Fast sync db wrapper should not be None"),
+        ))
+    };
+
+    maybe_apply_genesis(&db_rw, node_config)?;
+
     Ok((aptos_db, db_rw, None))
 }
 

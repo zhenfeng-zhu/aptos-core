@@ -153,7 +153,7 @@ pub struct FakeAptosDB {
 }
 
 impl FakeAptosDB {
-    pub fn new(db: FastSyncStorageWrapper) -> Self {
+    pub fn new<D: DbReader + DbWriter>(db: D) -> Self {
         Self {
             inner: db,
             txn_by_version: Arc::new(DashMap::new()),

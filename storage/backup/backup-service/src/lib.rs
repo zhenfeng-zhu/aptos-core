@@ -5,10 +5,7 @@
 mod handlers;
 
 use crate::handlers::{get_routes, get_routes_with_backup_accessor};
-use aptos_db::{
-    backup::backup_data_accessor::BackupDataAccessor, fast_sync_aptos_db::FastSyncStorageWrapper,
-    AptosDB,
-};
+use aptos_db::{fast_sync_aptos_db::FastSyncStorageWrapper, AptosDB};
 use aptos_logger::prelude::*;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::runtime::Runtime;
@@ -17,8 +14,7 @@ pub fn start_backup_service_with_fast_sync_wrapper(
     address: SocketAddr,
     db: Arc<FastSyncStorageWrapper>,
 ) -> Runtime {
-    let backup_accessor = BackupDataAccessor::new(db);
-    let routes = get_routes_with_backup_accessor(backup_accessor);
+    let routes = get_routes_with_backup_accessor(db);
 
     let runtime = aptos_runtimes::spawn_named_runtime("backup".into(), None);
 

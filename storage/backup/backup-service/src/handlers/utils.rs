@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use aptos_db::backup::{backup_data_accessor::BackupDataAccessor, backup_handler::BackupHandler};
+use aptos_db::{backup::backup_handler::BackupHandler, fast_sync_aptos_db::FastSyncStorageWrapper};
 use aptos_logger::prelude::*;
 use aptos_metrics_core::{
     register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
@@ -12,7 +12,7 @@ use bytes::Bytes;
 use hyper::Body;
 use once_cell::sync::Lazy;
 use serde::Serialize;
-use std::{convert::Infallible, future::Future};
+use std::{convert::Infallible, future::Future, sync::Arc};
 use warp::{reply::Response, Rejection, Reply};
 
 pub(super) static LATENCY_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
@@ -86,18 +86,17 @@ where
 }
 
 pub(super) fn reply_with_async_channel_writer_with_accessor<G, F>(
-    backup_handler: &BackupDataAccessor,
+    backup_handler: Arc<FastSyncStorageWrapper>,
     endpoint: &'static str,
     get_channel_writer: G,
 ) -> Box<dyn Reply>
 where
-    G: FnOnce(BackupDataAccessor, BytesSender) -> F,
+    G: FnOnce(Arc<FastSyncStorageWrapper>, BytesSender) -> F,
     F: Future<Output = ()> + Send + 'static,
 {
     let (sender, body) = Body::channel();
     let sender = BytesSender::new(endpoint, sender);
-    let bh = backup_handler.clone();
-    tokio::spawn(get_channel_writer(bh, sender));
+    tokio::spawn(get_channel_writer(backup_handler, sender));
 
     Box::new(Response::new(body))
 }

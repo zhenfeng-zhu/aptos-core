@@ -10,8 +10,9 @@ use crate::handlers::utils::{
     send_size_prefixed_bcs_bytes, unwrap_or_500, LATENCY_HISTOGRAM,
 };
 use aptos_crypto::hash::HashValue;
-use aptos_db::backup::{backup_data_accessor::BackupDataAccessor, backup_handler::BackupHandler};
+use aptos_db::{backup::backup_handler::BackupHandler, fast_sync_aptos_db::FastSyncStorageWrapper};
 use aptos_types::transaction::Version;
+use std::sync::Arc;
 use warp::{filters::BoxedFilter, reply::Reply, Filter};
 
 static DB_STATE: &str = "db_state";
@@ -132,7 +133,7 @@ pub(crate) fn get_routes(backup_handler: BackupHandler) -> BoxedFilter<(impl Rep
 }
 
 pub(crate) fn get_routes_with_backup_accessor(
-    backup_handler: BackupDataAccessor,
+    backup_handler: Arc<FastSyncStorageWrapper>,
 ) -> BoxedFilter<(impl Reply,)> {
     // GET db_state
     let bh = backup_handler.clone();
@@ -157,9 +158,11 @@ pub(crate) fn get_routes_with_backup_accessor(
     let bh = backup_handler.clone();
     let state_snapshot = warp::path!(Version)
         .map(move |version| {
-            reply_with_async_channel_writer_with_accessor(&bh, STATE_SNAPSHOT, |bh, sender| {
-                send_size_prefixed_bcs_bytes(bh.get_account_iter(version), sender)
-            })
+            reply_with_async_channel_writer_with_accessor(
+                bh.clone(),
+                STATE_SNAPSHOT,
+                |bh, sender| send_size_prefixed_bcs_bytes(bh.get_account_iter(version), sender),
+            )
         })
         .recover(handle_rejection);
 
@@ -179,7 +182,7 @@ pub(crate) fn get_routes_with_backup_accessor(
             // use async move block to group `bh` and the iterator into the same lifetime, since the
             // latter references the former.
             reply_with_async_channel_writer_with_accessor(
-                &bh,
+                bh.clone(),
                 EPOCH_ENDING_LEDGER_INFOS,
                 |bh, sender| async move {
                     send_size_prefixed_bcs_bytes(
@@ -199,7 +202,7 @@ pub(crate) fn get_routes_with_backup_accessor(
             // use async move block to group `bh` and the iterator into the same lifetime, since the
             // latter references the former.
             reply_with_async_channel_writer_with_accessor(
-                &bh,
+                bh.clone(),
                 TRANSACTIONS,
                 |bh, sender| async move {
                     send_size_prefixed_bcs_bytes(
@@ -213,12 +216,11 @@ pub(crate) fn get_routes_with_backup_accessor(
         .recover(handle_rejection);
 
     // GET transaction_range_proof/<first_version>/<last_version>
-    let bh = backup_handler;
     let transaction_range_proof = warp::path!(Version / Version)
         .map(move |first_version, last_version| {
             reply_with_bcs_bytes(
                 TRANSACTION_RANGE_PROOF,
-                &bh.get_transaction_range_proof(first_version, last_version)?,
+                &backup_handler.get_transaction_range_proof(first_version, last_version)?,
             )
         })
         .map(unwrap_or_500)
