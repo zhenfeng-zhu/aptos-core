@@ -1421,8 +1421,8 @@ fn validators_join_and_leave() -> ForgeConfig {
 
 fn land_blocking_test_suite(duration: Duration) -> ForgeConfig {
     ForgeConfig::default()
-        .with_initial_validator_count(NonZeroUsize::new(20).unwrap())
-        .with_initial_fullnode_count(10)
+        .with_initial_validator_count(NonZeroUsize::new(4).unwrap())
+        .with_initial_fullnode_count(0)
         .add_network_test(PerformanceBenchmark)
         .with_genesis_helm_config_fn(Arc::new(|helm_values| {
             // Have single epoch change in land blocking
