@@ -210,6 +210,7 @@ impl Debug for SubscriptionRequest {
 }
 
 /// A set of subscription requests that together form a stream
+#[derive(Debug)]
 pub struct SubscriptionStreamRequests {
     highest_known_version: u64, // The highest version known by the peer (at this point in the stream)
     highest_known_epoch: u64,   // The highest epoch known by the peer (at this point in the stream)
@@ -455,6 +456,30 @@ impl SubscriptionStreamRequests {
         self.refresh_last_stream_update_time();
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    /// Returns the highest known version and epoch for test purposes
+    pub fn get_highest_known_version_and_epoch(&self) -> (u64, u64) {
+        (self.highest_known_version, self.highest_known_epoch)
+    }
+
+    #[cfg(test)]
+    /// Returns the next index to serve for test purposes
+    pub fn get_next_index_to_serve(&self) -> u64 {
+        self.next_index_to_serve
+    }
+
+    #[cfg(test)]
+    /// Returns the pending subscription requests for test purposes
+    pub fn get_pending_subscription_requests(&mut self) -> &mut BTreeMap<u64, SubscriptionRequest> {
+        &mut self.pending_subscription_requests
+    }
+
+    #[cfg(test)]
+    /// Sets the next index to serve for test purposes
+    pub fn set_next_index_to_serve(&mut self, next_index_to_serve: u64) {
+        self.next_index_to_serve = next_index_to_serve;
     }
 }
 
