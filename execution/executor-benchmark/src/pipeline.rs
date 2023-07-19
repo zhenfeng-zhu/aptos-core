@@ -8,6 +8,7 @@ use crate::{
 use aptos_crypto::HashValue;
 use aptos_executor::block_executor::{BlockExecutor, TransactionBlockExecutor};
 use aptos_executor_types::BlockExecutorTrait;
+use aptos_language_e2e_tests::data_store::FakeDataStore;
 use aptos_logger::info;
 use aptos_types::{
     block_executor::partitioner::ExecutableBlock,
@@ -99,6 +100,7 @@ where
             Some(commit_sender),
             config.allow_discards,
             config.allow_aborts,
+            Arc::new(FakeDataStore::default()),
         );
 
         if config.async_partitioning {
@@ -133,6 +135,7 @@ where
                         info!("Received block of size {:?} to execute", block_size);
                         executed += block_size;
                         exe.execute_block(current_block_start_time, partition_time, block);
+                        // exe.blockstm_only_execute_block(block);
                         info!("Finished executing block");
                     }
 
@@ -179,7 +182,8 @@ where
                         } = partitioning_stage.process(raw_block);
                         let block_size = block.transactions.num_transactions();
                         executed += block_size;
-                        exe.execute_block(current_block_start_time, partition_time, block);
+                        // exe.execute_block(current_block_start_time, partition_time, block);
+                        exe.blockstm_only_execute_block(block);
                         info!("Finished executing block");
                     }
 

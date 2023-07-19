@@ -3,18 +3,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::pipeline::CommitBlockMessage;
+use aptos_block_executor::txn_commit_hook::NoOpTransactionCommitHook;
 use aptos_crypto::hash::HashValue;
 use aptos_executor::block_executor::{BlockExecutor, TransactionBlockExecutor};
 use aptos_executor_types::BlockExecutorTrait;
 use aptos_logger::info;
 use aptos_types::{
-    block_executor::partitioner::ExecutableBlock,
+    block_executor::partitioner::{ExecutableBlock, BlockExecutorTransactions},
     transaction::{Transaction, Version},
 };
+use aptos_vm::{block_executor::{BlockAptosVM, AptosTransactionOutput}, AptosVM};
+use move_core_types::vm_status::VMStatus;
 use std::{
     sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
+use aptos_language_e2e_tests::data_store::FakeDataStore;
+use once_cell::sync::Lazy;
+
+pub static RAYON_EXEC_POOL: Lazy<Arc<rayon::ThreadPool>> = Lazy::new(|| {
+    Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .thread_name(|index| format!("par_exec_{}", index))
+            .build()
+            .unwrap(),
+    )
+});
 
 pub struct TransactionExecutor<V> {
     num_blocks_processed: usize,
@@ -26,6 +41,8 @@ pub struct TransactionExecutor<V> {
     commit_sender: Option<mpsc::SyncSender<CommitBlockMessage>>,
     allow_discards: bool,
     allow_aborts: bool,
+    // Used for blockstm-only benchmark
+    state_view: Arc<FakeDataStore>,
 }
 
 impl<V> TransactionExecutor<V>
@@ -39,6 +56,7 @@ where
         commit_sender: Option<mpsc::SyncSender<CommitBlockMessage>>,
         allow_discards: bool,
         allow_aborts: bool,
+        state_view: Arc<FakeDataStore>,
     ) -> Self {
         Self {
             num_blocks_processed: 0,
@@ -49,6 +67,7 @@ where
             commit_sender,
             allow_discards,
             allow_aborts,
+            state_view,
         }
     }
 
@@ -145,5 +164,20 @@ where
         }
         self.parent_block_id = block_id;
         self.num_blocks_processed += 1;
+    }
+
+    pub fn blockstm_only_execute_block(&mut self, executable_block: ExecutableBlock<Transaction>) {
+        BlockAptosVM::execute_block::<
+                _,
+                NoOpTransactionCommitHook<AptosTransactionOutput, VMStatus>,
+            >(
+                Arc::clone(&RAYON_EXEC_POOL),
+                BlockExecutorTransactions::Unsharded(executable_block.into_txns()),
+                self.state_view.as_ref(),
+                AptosVM::get_concurrency_level(),
+                None,
+                None,
+            )
+            .expect("VM should not fail to start");
     }
 }

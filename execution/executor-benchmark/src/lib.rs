@@ -54,7 +54,7 @@ pub fn init_db_and_executor<V>(config: &NodeConfig) -> (DbReaderWriter, BlockExe
 where
     V: TransactionBlockExecutor,
 {
-    let db = DbReaderWriter::new(
+    let db: DbReaderWriter = DbReaderWriter::new(
         AptosDB::open(
             &config.storage.dir(),
             false, /* readonly */

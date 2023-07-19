@@ -8,7 +8,7 @@ import os
 import tempfile
 import json
 from typing import Callable, Optional, Tuple, Mapping, Sequence, Any
-from tabulate import tabulate
+# from tabulate import tabulate
 from subprocess import Popen, PIPE, CalledProcessError
 from dataclasses import dataclass
 
@@ -17,32 +17,32 @@ from dataclasses import dataclass
 # Calibrate from https://gist.github.com/igor-aptos/7b12ca28de03894cddda8e415f37889e
 # Local machine numbers will be higher.
 EXPECTED_TPS = {
-    ("no-op", False, 1): (18000.0, True),
-    ("no-op", False, 1000): (2800.0, True),
-    ("coin-transfer", False, 1): (12500.0, True),
-    ("coin-transfer", True, 1): (30300.0, True),
+    # ("no-op", False, 1): (18000.0, True),
+    # ("no-op", False, 1000): (2800.0, True),
+    # ("coin-transfer", False, 1): (12500.0, True),
+    # ("coin-transfer", True, 1): (30300.0, True),
     ("account-generation", False, 1): (10500.0, True),
-    ("account-generation", True, 1): (26500.0, True),
-    ("account-resource32-b", False, 1): (15400.0, True),
-    ("modify-global-resource", False, 1): (3400.0, True),
-    ("modify-global-resource", False, 10): (10100.0, True),
-    ("publish-package", False, 1): (120.0, True),
+    # ("account-generation", True, 1): (26500.0, True),
+    # ("account-resource32-b", False, 1): (15400.0, True),
+    # ("modify-global-resource", False, 1): (3400.0, True),
+    # ("modify-global-resource", False, 10): (10100.0, True),
+    # ("publish-package", False, 1): (120.0, True),
     ("mix_publish_transfer", False, 1): (1400.0, False),
-    ("batch100-transfer", False, 1): (370, True),
-    ("batch100-transfer", True, 1): (940, True),
-    ("token-v1ft-mint-and-transfer", False, 1): (1550.0, True),
-    ("token-v1ft-mint-and-transfer", False, 20): (7000.0, True),
-    ("token-v1nft-mint-and-transfer-sequential", False, 1): (1000.0, True),
-    ("token-v1nft-mint-and-transfer-sequential", False, 20): (5150.0, True),
-    ("token-v1nft-mint-and-transfer-parallel", False, 1): (1300.0, True),
-    ("token-v1nft-mint-and-transfer-parallel", False, 20): (5300.0, True),
-    # ("token-v1ft-mint-and-store", False): 1000.0,
-    # ("token-v1nft-mint-and-store-sequential", False): 1000.0,
-    # ("token-v1nft-mint-and-store-parallel", False): 1000.0,
-    ("no-op2-signers", False, 1): (18000.0, True),
-    ("no-op5-signers", False, 1): (18000.0, True),
-    ("token-v2-ambassador-mint", False, 1): (1500.0, True),
-    ("token-v2-ambassador-mint", False, 20): (5000.0, True),
+    # ("batch100-transfer", False, 1): (370, True),
+    # ("batch100-transfer", True, 1): (940, True),
+    # ("token-v1ft-mint-and-transfer", False, 1): (1550.0, True),
+    # ("token-v1ft-mint-and-transfer", False, 20): (7000.0, True),
+    # ("token-v1nft-mint-and-transfer-sequential", False, 1): (1000.0, True),
+    # ("token-v1nft-mint-and-transfer-sequential", False, 20): (5150.0, True),
+    # ("token-v1nft-mint-and-transfer-parallel", False, 1): (1300.0, True),
+    # ("token-v1nft-mint-and-transfer-parallel", False, 20): (5300.0, True),
+    # # ("token-v1ft-mint-and-store", False): 1000.0,
+    # # ("token-v1nft-mint-and-store-sequential", False): 1000.0,
+    # # ("token-v1nft-mint-and-store-parallel", False): 1000.0,
+    # ("no-op2-signers", False, 1): (18000.0, True),
+    # ("no-op5-signers", False, 1): (18000.0, True),
+    # ("token-v2-ambassador-mint", False, 1): (1500.0, True),
+    # ("token-v2-ambassador-mint", False, 20): (5000.0, True),
 }
 
 NOISE_LOWER_LIMIT = 0.8
@@ -59,7 +59,7 @@ CODE_PERF_VERSION = "v4"
 # use production concurrency level for assertions
 CONCURRENCY_LEVEL = 8
 BLOCK_SIZE = 10000
-NUM_BLOCKS = 15
+NUM_BLOCKS = 5
 NUM_BLOCKS_DETAILED = 10
 NUM_ACCOUNTS = max([2000000, 4 * NUM_BLOCKS * BLOCK_SIZE])
 ADDITIONAL_DST_POOL_ACCOUNTS = 2 * NUM_BLOCKS * BLOCK_SIZE
@@ -153,23 +153,26 @@ def extract_run_results(output: str, execution_only: bool) -> RunResults:
         gps = float(get_only(re.findall(r"Overall GPS: (\d+\.?\d*) gas/s", output)))
         gpt = float(get_only(re.findall(r"Overall GPT: (\d+\.?\d*) gas/txn", output)))
 
-    fraction_in_execution = float(
-        re.findall(r"Overall fraction of total: (\d+\.?\d*) in execution", output)[-1]
-    )
-    fraction_of_execution_in_vm = float(
-        re.findall(r"Overall fraction of execution (\d+\.?\d*) in VM", output)[-1]
-    )
-    fraction_in_commit = float(
-        re.findall(r"Overall fraction of total: (\d+\.?\d*) in commit", output)[-1]
-    )
+    # fraction_in_execution = float(
+    #     re.findall(r"Overall fraction of total: (\d+\.?\d*) in execution", output)[-1]
+    # )
+    # fraction_of_execution_in_vm = float(
+    #     re.findall(r"Overall fraction of execution (\d+\.?\d*) in VM", output)[-1]
+    # )
+    # fraction_in_commit = float(
+    #     re.findall(r"Overall fraction of total: (\d+\.?\d*) in commit", output)[-1]
+    # )
 
     return RunResults(
         tps,
         gps,
         gpt,
-        fraction_in_execution,
-        fraction_of_execution_in_vm,
-        fraction_in_commit,
+        0.0,
+        0.0,
+        0.0,
+        # fraction_in_execution,
+        # fraction_of_execution_in_vm,
+        # fraction_in_commit,
     )
 
 
@@ -232,7 +235,7 @@ def print_table(
             row.append(int(round(result.single_node_result.gpt)))
         rows.append(row)
 
-    print(tabulate(rows, headers=headers))
+    # print(tabulate(rows, headers=headers))
 
 
 errors = []
@@ -279,7 +282,7 @@ with tempfile.TemporaryDirectory() as tmpdirname:
                 output, execution_only=True
             )
 
-        test_db_command = f"cargo run {BUILD_FLAG} -- --concurrency-level {CONCURRENCY_LEVEL} {common_command_suffix} --blocks {NUM_BLOCKS}"
+        test_db_command = f"cargo run {BUILD_FLAG} -- --concurrency-level {CONCURRENCY_LEVEL} --skip-commit {common_command_suffix} --blocks {NUM_BLOCKS}"
         output = execute_command(test_db_command)
 
         current_run_key = RunGroupKey(

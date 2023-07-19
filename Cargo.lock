@@ -1138,6 +1138,7 @@ dependencies = [
  "aptos-genesis",
  "aptos-infallible",
  "aptos-jellyfish-merkle",
+ "aptos-language-e2e-tests",
  "aptos-logger",
  "aptos-metrics-core",
  "aptos-push-metrics",

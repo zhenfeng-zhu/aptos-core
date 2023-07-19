@@ -384,6 +384,13 @@ impl<T: Clone> ExecutableBlock<T> {
             transactions,
         }
     }
+
+    pub fn into_txns(self) -> Vec<T> {
+        match self.transactions {
+            ExecutableTransactions::Unsharded(transactions) => transactions,
+            ExecutableTransactions::Sharded(sub_blocks) => SubBlocksForShard::<T>::flatten(sub_blocks),
+        }
+    }
 }
 
 impl<T: Clone> From<(HashValue, Vec<T>)> for ExecutableBlock<T> {
@@ -406,6 +413,13 @@ impl<T: Clone> ExecutableTransactions<T> {
                 .iter()
                 .map(|sub_block| sub_block.num_txns())
                 .sum(),
+        }
+    }
+
+    pub fn into_txns(self) -> Vec<T> {
+        match self {
+            ExecutableTransactions::Unsharded(transactions) => transactions,
+            ExecutableTransactions::Sharded(sub_blocks) => SubBlocksForShard::<T>::flatten(sub_blocks),
         }
     }
 }

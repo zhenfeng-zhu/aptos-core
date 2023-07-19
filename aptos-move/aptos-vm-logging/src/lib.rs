@@ -48,7 +48,7 @@ impl SpeculativeEvent for VMLogEntry {
             Level::Error => {
                 // TODO: Consider using SpeculativeCounter to increase CRITICAL_ERRORS
                 // on the critical path instead of async dispatching.
-                alert!(self.context, "{}", self.message);
+                // alert!(self.context, "{}", self.message);
             },
             Level::Warn => warn!(self.context, "{}", self.message),
             Level::Info => info!(self.context, "{}", self.message),

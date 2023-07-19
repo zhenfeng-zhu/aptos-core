@@ -50,6 +50,8 @@ rayon = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
+aptos-language-e2e-tests = { workspace = true }
+
 
 [target.'cfg(unix)'.dependencies]
 jemallocator = { workspace = true }
