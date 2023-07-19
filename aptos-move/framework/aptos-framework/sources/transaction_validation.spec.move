@@ -63,6 +63,7 @@ spec aptos_framework::transaction_validation {
         txn_expiration_time: u64,
         chain_id: u8,
     ) {
+        pragma verify_duration_estimate = 120;
         include PrologueCommonAbortsIf;
     }
 
@@ -75,6 +76,7 @@ spec aptos_framework::transaction_validation {
         txn_expiration_time: u64,
         chain_id: u8,
     ) {
+        pragma verify_duration_estimate = 120;
         include PrologueCommonAbortsIf {
             gas_payer: signer::address_of(sender),
             txn_authentication_key: txn_public_key
@@ -91,6 +93,7 @@ spec aptos_framework::transaction_validation {
         chain_id: u8,
         _script_hash: vector<u8>,
     ) {
+        pragma verify_duration_estimate = 120;
         include PrologueCommonAbortsIf {
             gas_payer: signer::address_of(sender),
             txn_authentication_key: txn_public_key
@@ -116,6 +119,7 @@ spec aptos_framework::transaction_validation {
         secondary_signer_addresses: vector<address>,
         secondary_signer_public_key_hashes: vector<vector<u8>>,
     ) {
+        pragma verify_duration_estimate = 120;
         include MultiAgentPrologueCommonAbortsIf {
             secondary_signer_addresses,
             secondary_signer_public_key_hashes,
@@ -196,7 +200,7 @@ spec aptos_framework::transaction_validation {
         use aptos_framework::coin::{CoinStore, CoinInfo};
         use aptos_framework::optional_aggregator;
         use aptos_framework::transaction_fee::{AptosCoinCapabilities, CollectedFeesPerBlock};
-
+        pragma verify_duration_estimate = 120;
         aborts_if !(txn_max_gas_units >= gas_units_remaining);
         let gas_used = txn_max_gas_units - gas_units_remaining;
 
@@ -268,6 +272,8 @@ spec aptos_framework::transaction_validation {
         use aptos_framework::coin::{CoinStore, CoinInfo};
         use aptos_framework::optional_aggregator;
         use aptos_framework::transaction_fee::{AptosCoinCapabilities, CollectedFeesPerBlock};
+
+        pragma verify_duration_estimate = 120;
 
         aborts_if !(txn_max_gas_units >= gas_units_remaining);
         let gas_used = txn_max_gas_units - gas_units_remaining;

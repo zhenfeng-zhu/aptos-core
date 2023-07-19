@@ -42,6 +42,7 @@ spec aptos_std::pool_u64_unbound {
     }
 
     spec buy_in(pool: &mut Pool, shareholder: address, coins_amount: u64): u128 {
+        pragma verify_duration_estimate = 120;
         let new_shares = spec_amount_to_shares_with_total_coins(pool, coins_amount, pool.total_coins);
         aborts_if pool.total_coins + coins_amount > MAX_U64;
         aborts_if pool.total_shares + new_shares > MAX_U128;

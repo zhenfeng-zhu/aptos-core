@@ -140,6 +140,7 @@ spec aptos_framework::stake {
     }
 
     spec on_new_epoch {
+        pragma verify_duration_estimate = 120;
         pragma disable_invariants_in_body;
         // The following resource requirement cannot be discharged by the global
         // invariants because this function is called during genesis.
@@ -157,6 +158,7 @@ spec aptos_framework::stake {
     }
 
     spec update_stake_pool {
+        pragma verify_duration_estimate = 120;
         include ResourceRequirement;
         include staking_config::StakingRewardsConfigRequirement;
         aborts_if !exists<StakePool>(pool_address);
@@ -191,6 +193,7 @@ spec aptos_framework::stake {
 
     spec calculate_rewards_amount {
         pragma opaque;
+        pragma verify_duration_estimate = 120;
         requires rewards_rate <= MAX_REWARDS_RATE;
         requires rewards_rate_denominator > 0;
         requires rewards_rate <= rewards_rate_denominator;
@@ -271,6 +274,7 @@ spec aptos_framework::stake {
     }
 
     spec update_voting_power_increase(increase_amount: u64) {
+        pragma verify_duration_estimate = 120;
         let aptos = @aptos_framework;
         let pre_validator_set = global<ValidatorSet>(aptos);
         let post validator_set = global<ValidatorSet>(aptos);

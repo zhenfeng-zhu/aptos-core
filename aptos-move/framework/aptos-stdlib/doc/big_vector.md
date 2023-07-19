@@ -708,6 +708,12 @@ Return <code><b>true</b></code> if the vector <code>v</code> has no elements and
 ## Specification
 
 
+
+<pre><code><b>pragma</b> verify=<b>false</b>;
+</code></pre>
+
+
+
 <a name="@Specification_1_BigVector"></a>
 
 ### Struct `BigVector`

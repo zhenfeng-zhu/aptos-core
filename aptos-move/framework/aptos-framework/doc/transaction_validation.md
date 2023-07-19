@@ -716,7 +716,8 @@ Give some constraints that may abort according to the conditions.
 
 
 
-<pre><code><b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a>;
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a>;
 </code></pre>
 
 
@@ -732,7 +733,8 @@ Give some constraints that may abort according to the conditions.
 
 
 
-<pre><code><b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a> {
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a> {
     gas_payer: <a href="../../aptos-stdlib/../move-stdlib/doc/signer.md#0x1_signer_address_of">signer::address_of</a>(sender),
     txn_authentication_key: txn_public_key
 };
@@ -751,7 +753,8 @@ Give some constraints that may abort according to the conditions.
 
 
 
-<pre><code><b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a> {
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_PrologueCommonAbortsIf">PrologueCommonAbortsIf</a> {
     gas_payer: <a href="../../aptos-stdlib/../move-stdlib/doc/signer.md#0x1_signer_address_of">signer::address_of</a>(sender),
     txn_authentication_key: txn_public_key
 };
@@ -816,7 +819,8 @@ not equal the number of singers.
 
 
 
-<pre><code><b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_MultiAgentPrologueCommonAbortsIf">MultiAgentPrologueCommonAbortsIf</a> {
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>include</b> <a href="transaction_validation.md#0x1_transaction_validation_MultiAgentPrologueCommonAbortsIf">MultiAgentPrologueCommonAbortsIf</a> {
     secondary_signer_addresses,
     secondary_signer_public_key_hashes,
 };
@@ -867,7 +871,8 @@ Abort according to the conditions.
 Skip transaction_fee::burn_fee verification.
 
 
-<pre><code><b>aborts_if</b> !(txn_max_gas_units &gt;= gas_units_remaining);
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>aborts_if</b> !(txn_max_gas_units &gt;= gas_units_remaining);
 <b>let</b> gas_used = txn_max_gas_units - gas_units_remaining;
 <b>aborts_if</b> !(txn_gas_price * gas_used &lt;= <a href="transaction_validation.md#0x1_transaction_validation_MAX_U64">MAX_U64</a>);
 <b>let</b> transaction_fee_amount = txn_gas_price * gas_used;
@@ -925,7 +930,8 @@ Abort according to the conditions.
 Skip transaction_fee::burn_fee verification.
 
 
-<pre><code><b>aborts_if</b> !(txn_max_gas_units &gt;= gas_units_remaining);
+<pre><code><b>pragma</b> verify_duration_estimate = 120;
+<b>aborts_if</b> !(txn_max_gas_units &gt;= gas_units_remaining);
 <b>let</b> gas_used = txn_max_gas_units - gas_units_remaining;
 <b>aborts_if</b> !(txn_gas_price * gas_used &lt;= <a href="transaction_validation.md#0x1_transaction_validation_MAX_U64">MAX_U64</a>);
 <b>let</b> transaction_fee_amount = txn_gas_price * gas_used;

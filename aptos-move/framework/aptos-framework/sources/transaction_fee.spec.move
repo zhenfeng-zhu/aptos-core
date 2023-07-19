@@ -34,6 +34,7 @@ spec aptos_framework::transaction_fee {
         use std::signer;
         use aptos_framework::coin::CoinInfo;
         use aptos_framework::aptos_coin::AptosCoin;
+        pragma verify_duration_estimate = 120;
         // Percentage validation
         aborts_if new_burn_percentage > 100;
         // Signer validation
@@ -60,6 +61,7 @@ spec aptos_framework::transaction_fee {
         use aptos_framework::aggregator;
         use aptos_framework::coin::CoinInfo;
         use aptos_framework::aptos_coin::AptosCoin;
+        pragma verify_duration_estimate = 120;
         requires burn_percentage <= 100;
         requires exists<AptosCoinCapabilities>(@aptos_framework);
         requires exists<CoinInfo<AptosCoin>>(@aptos_framework);
@@ -91,6 +93,7 @@ spec aptos_framework::transaction_fee {
     spec process_collected_fees() {
         use aptos_framework::coin::CoinInfo;
         use aptos_framework::aptos_coin::AptosCoin;
+        pragma verify_duration_estimate = 120;
         requires exists<AptosCoinCapabilities>(@aptos_framework);
         requires exists<stake::ValidatorFees>(@aptos_framework);
         requires exists<CoinInfo<AptosCoin>>(@aptos_framework);
