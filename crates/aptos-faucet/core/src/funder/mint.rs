@@ -226,7 +226,7 @@ impl MintFunder {
 
         info!(
             "Successfully configured MintFunder to use delegated account: {}",
-            delegated_account.address().to_hex_literal()
+            delegated_account.address()
         );
 
         // Update the faucet account and restore the maximum amount.

@@ -1,15 +1,5 @@
 {
-  "message": "failed to parse path `address`: failed to parse \"string(Address)\": invalid account address \"1\"",
-  "error_code": "web_framework_error",
-  "vm_error_code": null
-}
-{
-  "message": "failed to parse path `address`: failed to parse \"string(Address)\": invalid account address \"0xzz\"",
-  "error_code": "web_framework_error",
-  "vm_error_code": null
-}
-{
-  "message": "failed to parse path `address`: failed to parse \"string(Address)\": invalid account address \"01\"",
+  "message": "failed to parse path `address`: failed to parse \"string(Address)\": Invalid account address: Unable to parse AccountAddress (must be hex string that conforms to AIP-40)",
   "error_code": "web_framework_error",
   "vm_error_code": null
 }

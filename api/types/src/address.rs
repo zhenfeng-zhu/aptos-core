@@ -108,7 +108,7 @@ mod tests {
             assert_eq!(address.parse::<Address>().unwrap().to_string(), "0x1");
         }
 
-        let invalid_addresses = vec!["invalid", "00x1", "x1", "01", "1"];
+        let invalid_addresses = vec!["invalid", "00x1", "x1"];
         for address in invalid_addresses {
             assert_eq!(
                 format!("invalid account address {:?}", address),

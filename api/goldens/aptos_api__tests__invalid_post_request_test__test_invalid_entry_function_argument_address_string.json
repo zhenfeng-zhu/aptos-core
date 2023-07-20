@@ -1,5 +1,5 @@
 {
-  "message": "The given transaction is invalid: Failed to parse transaction payload: parse arguments[0] failed, expect string<address>, caused by error: invalid account address \"invalid\"",
+  "message": "The given transaction is invalid: Failed to parse transaction payload: parse arguments[0] failed, expect string<address>, caused by error: Invalid account address: Unable to parse AccountAddress (must be hex string that conforms to AIP-40)",
   "error_code": "invalid_input",
   "vm_error_code": null
 }

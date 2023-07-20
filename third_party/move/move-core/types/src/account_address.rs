@@ -184,13 +184,13 @@ impl std::ops::Deref for AccountAddress {
 
 impl fmt::Display for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:x}", self)
+        write!(f, "{}", self.to_standard_string())
     }
 }
 
 impl fmt::Debug for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self)
+        write!(f, "{}", self.to_standard_string())
     }
 }
 
@@ -335,7 +335,7 @@ impl Serialize for AccountAddress {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            self.to_hex().serialize(serializer)
+            self.to_string().serialize(serializer)
         } else {
             // See comment in deserialize.
             serializer.serialize_newtype_struct("AccountAddress", &self.0)
@@ -517,8 +517,8 @@ mod tests {
 
         let address = AccountAddress::from_hex(hex).unwrap();
 
-        assert_eq!(format!("{}", address), hex);
-        assert_eq!(format!("{:?}", address), hex);
+        assert_eq!(format!("{}", address), format!("0x{}", hex));
+        assert_eq!(format!("{:?}", address), format!("0x{}", hex));
         assert_eq!(format!("{:X}", address), upper_hex);
         assert_eq!(format!("{:x}", address), hex);
 
@@ -683,10 +683,10 @@ mod tests {
 
     #[test]
     fn test_serde_json() {
-        let hex = "ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0";
-        let json_hex = "\"ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0\"";
+        let hex = "0xca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0";
+        let json_hex = "\"0xca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0\"";
 
-        let address = AccountAddress::from_hex(hex).unwrap();
+        let address = AccountAddress::from_str(hex).unwrap();
 
         let json = serde_json::to_string(&address).unwrap();
         let json_address: AccountAddress = serde_json::from_str(json_hex).unwrap();
