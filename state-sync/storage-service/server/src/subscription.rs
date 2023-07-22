@@ -483,7 +483,7 @@ impl SubscriptionStreamRequests {
     }
 }
 
-/// Handles active and ready subscription
+/// Handles active and ready subscriptions
 pub(crate) async fn handle_active_subscriptions<T: StorageReaderInterface>(
     bounded_executor: BoundedExecutor,
     cached_storage_server_summary: Arc<ArcSwap<StorageServerSummary>>,
@@ -495,39 +495,46 @@ pub(crate) async fn handle_active_subscriptions<T: StorageReaderInterface>(
     subscriptions: Arc<Mutex<HashMap<PeerNetworkId, SubscriptionStreamRequests>>>,
     time_service: TimeService,
 ) -> Result<(), Error> {
-    // Update the number of active subscriptions
-    update_active_subscription_metrics(subscriptions.clone());
+    // Continuously handle the subscriptions until we identify that
+    // there are no more subscriptions ready to be served now.
+    loop {
+        // Update the number of active subscriptions
+        update_active_subscription_metrics(subscriptions.clone());
 
-    // Identify the peers with ready subscriptions
-    let peers_with_ready_subscriptions = get_peers_with_ready_subscriptions(
-        bounded_executor.clone(),
-        config,
-        cached_storage_server_summary.clone(),
-        optimistic_fetches.clone(),
-        lru_response_cache.clone(),
-        request_moderator.clone(),
-        storage.clone(),
-        subscriptions.clone(),
-        time_service.clone(),
-    )
-    .await?;
+        // Identify the peers with ready subscriptions
+        let peers_with_ready_subscriptions = get_peers_with_ready_subscriptions(
+            bounded_executor.clone(),
+            config,
+            cached_storage_server_summary.clone(),
+            optimistic_fetches.clone(),
+            lru_response_cache.clone(),
+            request_moderator.clone(),
+            storage.clone(),
+            subscriptions.clone(),
+            time_service.clone(),
+        )
+        .await?;
 
-    // Remove and handle the ready subscriptions
-    handle_ready_subscriptions(
-        bounded_executor,
-        cached_storage_server_summary,
-        config,
-        optimistic_fetches,
-        lru_response_cache,
-        request_moderator,
-        storage,
-        subscriptions,
-        time_service,
-        peers_with_ready_subscriptions,
-    )
-    .await;
+        // If there are no peers with ready subscriptions, we're finished
+        if peers_with_ready_subscriptions.is_empty() {
+            return Ok(());
+        }
 
-    Ok(())
+        // Remove and handle the ready subscriptions
+        handle_ready_subscriptions(
+            bounded_executor.clone(),
+            cached_storage_server_summary.clone(),
+            config,
+            optimistic_fetches.clone(),
+            lru_response_cache.clone(),
+            request_moderator.clone(),
+            storage.clone(),
+            subscriptions.clone(),
+            time_service.clone(),
+            peers_with_ready_subscriptions,
+        )
+        .await;
+    }
 }
 
 /// Handles the ready subscriptions by removing them from the
