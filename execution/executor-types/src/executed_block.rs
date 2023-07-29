@@ -14,9 +14,10 @@ use aptos_types::{
     state_store::ShardedStateUpdates,
     transaction::{Transaction, TransactionStatus, TransactionToCommit},
 };
-use std::sync::Arc;
+use arr_macro::arr;
+use dashmap::DashMap;
+use std::{collections::HashMap, sync::Arc};
 
-#[derive(Default)]
 pub struct ExecutedBlock {
     pub status: Vec<TransactionStatus>,
     pub to_commit: Vec<Arc<TransactionToCommit>>,
@@ -27,6 +28,21 @@ pub struct ExecutedBlock {
     pub transaction_info_hashes: Vec<HashValue>,
     pub block_state_updates: ShardedStateUpdates,
     pub sharded_state_cache: ShardedStateCache,
+}
+
+impl Default for ExecutedBlock {
+    fn default() -> Self {
+        Self {
+            block_state_updates: arr![HashMap::new(); 256],
+            status: Default::default(),
+            to_commit: Default::default(),
+            result_view: Default::default(),
+            next_epoch_state: Default::default(),
+            reconfig_events: Default::default(),
+            transaction_info_hashes: Default::default(),
+            sharded_state_cache: arr![DashMap::new(); 256],
+        }
+    }
 }
 
 impl ExecutedBlock {

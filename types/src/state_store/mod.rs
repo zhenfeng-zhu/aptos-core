@@ -11,8 +11,8 @@ pub mod state_storage_usage;
 pub mod state_value;
 pub mod table;
 
-pub type ShardedStateUpdates = [HashMap<StateKey, Option<StateValue>>; 16];
+pub type ShardedStateUpdates = [HashMap<StateKey, Option<StateValue>>; 256];
 
 pub fn create_empty_sharded_state_updates() -> ShardedStateUpdates {
-    arr![HashMap::new(); 16]
+    arr![HashMap::new(); 256]
 }

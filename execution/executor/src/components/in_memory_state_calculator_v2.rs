@@ -177,7 +177,7 @@ impl InMemoryStateCalculatorV2 {
         to_keep
             .par_iter()
             .map(|(_, txn_output)| {
-                let mut updates = arr![HashMap::new(); 16];
+                let mut updates = arr![HashMap::new(); 256];
                 txn_output
                     .write_set()
                     .iter()

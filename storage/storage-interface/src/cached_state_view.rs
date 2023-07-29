@@ -39,7 +39,7 @@ static IO_POOL: Lazy<rayon::ThreadPool> = Lazy::new(|| {
 // version for the given StateKey, and the version is the maximum one which <= the base version. It
 // will be None if the value is None, or we found the value on the speculative tree (in that case
 // we don't know the maximum version).
-pub type ShardedStateCache = [DashMap<StateKey, (Option<Version>, Option<StateValue>)>; 16];
+pub type ShardedStateCache = [DashMap<StateKey, (Option<Version>, Option<StateValue>)>; 256];
 
 /// `CachedStateView` is like a snapshot of the global state comprised of state view at two
 /// levels, persistent storage and memory.
@@ -125,7 +125,7 @@ impl CachedStateView {
             id,
             snapshot,
             speculative_state,
-            sharded_state_cache: arr![DashMap::new(); 16],
+            sharded_state_cache: arr![DashMap::new(); 256],
             proof_fetcher,
         })
     }

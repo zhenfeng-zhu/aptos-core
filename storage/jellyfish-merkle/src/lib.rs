@@ -380,7 +380,7 @@ where
         let deduped_and_sorted_kvs = value_set
             .into_iter()
             .map(|kv| {
-                assert!(kv.0.nibble(0) == shard_id);
+                assert!(kv.0.byte(0) == shard_id);
                 kv
             })
             .collect::<BTreeMap<_, _>>()
@@ -433,7 +433,7 @@ where
         persisted_version: Option<Version>,
         version: Version,
     ) -> Result<(HashValue, TreeUpdateBatch<K>)> {
-        ensure!(shard_root_nodes.len() == 16);
+        ensure!(shard_root_nodes.len() == 256);
 
         let children: Children = shard_root_nodes
             .iter()
@@ -472,17 +472,35 @@ where
     pub fn get_shard_persisted_versions(
         &self,
         root_persisted_version: Option<Version>,
-    ) -> Result<[Option<Version>; 16]> {
-        let mut shard_persisted_versions = arr![None; 16];
+    ) -> Result<[Option<Version>; 256]> {
+        let mut shard_persisted_versions = arr![None; 256];
         if let Some(root_persisted_version) = root_persisted_version {
             let root_node_key = NodeKey::new_empty_path(root_persisted_version);
             let root_node = self.reader.get_node_with_tag(&root_node_key, "commit")?;
             match root_node {
                 Node::Internal(root_node) => {
-                    for shard_id in 0..16 {
-                        if let Some(Child { version, .. }) = root_node.child(Nibble::from(shard_id))
+                    for shard_id in 0..=255 {
+                        if let Some(Child { version, .. }) =
+                            root_node.child(Nibble::from((shard_id & 0xF0) >> 4))
                         {
-                            shard_persisted_versions[shard_id as usize] = Some(*version);
+                            let node_key = NodeKey::new(
+                                version.clone(),
+                                NibblePath::new_odd(vec![shard_id & 0xF0]),
+                            );
+                            let node = self.reader.get_node_with_tag(&node_key, "commit")?;
+                            match node {
+                                Node::Internal(node) => {
+                                    if let Some(Child { version, .. }) =
+                                        node.child(Nibble::from(shard_id & 0xF))
+                                    {
+                                        shard_persisted_versions[shard_id as usize] =
+                                            Some(*version);
+                                    }
+                                },
+                                _ => {
+                                    unreachable!("Leaf at second level.")
+                                },
+                            }
                         }
                     }
                 },
@@ -678,8 +696,8 @@ where
         version: Version,
     ) -> Result<(HashValue, TreeUpdateBatch<K>)> {
         let mut tree_update_batch = TreeUpdateBatch::new();
-        let mut shard_root_nodes = Vec::with_capacity(16);
-        for shard_id in 0..16 {
+        let mut shard_root_nodes = Vec::with_capacity(256);
+        for shard_id in 0..=255 {
             let value_set_for_shard = value_set
                 .iter()
                 .filter(|(k, _v)| k.nibble(0) == shard_id)
@@ -1055,13 +1073,11 @@ trait NibbleExt {
 impl NibbleExt for HashValue {
     /// Returns the `index`-th nibble.
     fn get_nibble(&self, index: usize) -> Nibble {
-        Nibble::from(
-            if index % 2 == 0 {
-                self[index / 2] >> 4
-            } else {
-                self[index / 2] & 0x0F
-            },
-        )
+        Nibble::from(if index % 2 == 0 {
+            self[index / 2] >> 4
+        } else {
+            self[index / 2] & 0x0F
+        })
     }
 
     /// Returns the length of common prefix of `self` and `other` in nibbles.
