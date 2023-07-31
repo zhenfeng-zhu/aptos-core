@@ -21,6 +21,8 @@
 ///     "metadata": {"beaconID": "fastnet"}
 /// }
 /// ```
+///
+/// **WARNING:** This code has NOT been audited. If using it in a production system, proceed at your own risk.
 
 module drand::drand {
     use std::hash::{sha3_256, sha2_256};
