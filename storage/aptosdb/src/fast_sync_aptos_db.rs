@@ -46,7 +46,7 @@ use aptos_types::{
 use move_core_types::account_address::AccountAddress;
 use std::sync::{Arc, RwLock};
 
-const SECONDARY_DB_DIR: &str = "fast_sync_secondary";
+pub const SECONDARY_DB_DIR: &str = "fast_sync_secondary";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FastSyncStatus {
@@ -83,29 +83,28 @@ impl FastSyncStorageWrapper {
         )
         .map_err(|err| anyhow!("fast sync DB failed to open {}", err))?;
 
-        // when the db is empty and config to do fast sync, we will create a second DB
+        // when the db is empty and configured to do fast sync, we will create a second DB
         if config.state_sync.state_sync_driver.bootstrapping_mode
             == BootstrappingMode::DownloadLatestStates
             && (db_main.ledger_store.get_latest_version().map_or(0, |v| v) == 0)
         {
             db_dir.push(SECONDARY_DB_DIR);
-            let secondary_db = Some(
-                AptosDB::open(
-                    db_dir.as_path(),
-                    false,
-                    config.storage.storage_pruner_config,
-                    config.storage.rocksdb_configs,
-                    config.storage.enable_indexer,
-                    config.storage.buffered_state_target_items,
-                    config.storage.max_num_nodes_per_lru_cache_shard,
-                )
-                .map_err(|err| anyhow!("fast sync DB failed to open {}", err))?,
-            );
+            let secondary_db = AptosDB::open(
+                db_dir.as_path(),
+                false,
+                config.storage.storage_pruner_config,
+                config.storage.rocksdb_configs,
+                config.storage.enable_indexer,
+                config.storage.buffered_state_target_items,
+                config.storage.max_num_nodes_per_lru_cache_shard,
+            )
+            .map_err(|err| anyhow!("Secondary DB failed to open {}", err))?;
+
             Ok((
                 None,
                 Some(FastSyncStorageWrapper {
-                    temporary_db_with_genesis: db_main,
-                    db_for_fast_sync: secondary_db,
+                    temporary_db_with_genesis: secondary_db,
+                    db_for_fast_sync: Some(db_main),
                     fast_sync_status: Arc::new(RwLock::new(FastSyncStatus::UNKNOWN)),
                 }),
             ))
@@ -133,9 +132,6 @@ impl FastSyncStorageWrapper {
         status == FastSyncStatus::STARTED
     }
 
-    /// we write to db main until fast sync starts, then we write to db secondary
-    /// we read the main DB until fast sync finishes, then we read from db secondary
-    /// during the fast sync, we read from db main and write to db secondary
     pub(crate) fn get_aptos_db_read_ref(&self) -> &AptosDB {
         if self.is_fast_sync_bootstrap_finished() {
             self.db_for_fast_sync
@@ -310,11 +306,10 @@ impl DbWriter for FastSyncStorageWrapper {
         version: Version,
         expected_root_hash: HashValue,
     ) -> Result<Box<dyn StateSnapshotReceiver<StateKey, StateValue>>> {
-        let mut status = self
+        *self
             .fast_sync_status
             .write()
-            .expect("Failed to get write lock of fast sync status");
-        *status = FastSyncStatus::STARTED;
+            .expect("Failed to get write lock of fast sync status") = FastSyncStatus::STARTED;
         self.get_aptos_db_write_ref()
             .get_state_snapshot_receiver(version, expected_root_hash)
     }

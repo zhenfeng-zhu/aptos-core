@@ -28,23 +28,26 @@ pub(crate) fn maybe_apply_genesis(db_rw: &DbReaderWriter, node_config: &NodeConf
 pub(crate) fn bootstrap_db(
     node_config: &NodeConfig,
 ) -> Result<(Arc<dyn DbReader>, DbReaderWriter, Option<Runtime>)> {
-    let (aptos_db, fast_sync_db_wrapper) = FastSyncStorageWrapper::initialize_dbs(node_config)?;
-
-    let (aptos_db_reader, db_rw, backup_service) = if let Some(db) = aptos_db {
-        let (db_arc, db_rw) = DbReaderWriter::wrap(db);
-        let db_backup_service =
-            start_backup_service(node_config.storage.backup_service_address, db_arc.clone());
-        (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
-    } else {
-        let (db_arc, db_rw) = DbReaderWriter::wrap(
-            fast_sync_db_wrapper.expect("Fast sync db wrapper should not be None"),
-        );
-        let db_backup_service = start_backup_service_with_fast_sync_wrapper(
-            node_config.storage.backup_service_address,
-            db_arc.clone(),
-        );
-        (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
-    };
+    let (aptos_db_reader, db_rw, backup_service) =
+        match FastSyncStorageWrapper::initialize_dbs(node_config)? {
+            (Some(db), None) => {
+                let (db_arc, db_rw) = DbReaderWriter::wrap(db);
+                let db_backup_service = start_backup_service(
+                    node_config.storage.backup_service_address,
+                    db_arc.clone(),
+                );
+                (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
+            },
+            (None, Some(fast_sync_db_wrapper)) => {
+                let (db_arc, db_rw) = DbReaderWriter::wrap(fast_sync_db_wrapper);
+                let db_backup_service = start_backup_service_with_fast_sync_wrapper(
+                    node_config.storage.backup_service_address,
+                    db_arc.clone(),
+                );
+                (db_arc as Arc<dyn DbReader>, db_rw, Some(db_backup_service))
+            },
+            _ => unreachable!(),
+        };
 
     maybe_apply_genesis(&db_rw, node_config)?;
 
@@ -58,14 +61,13 @@ pub(crate) fn bootstrap_db(
     node_config: &NodeConfig,
 ) -> Result<(Arc<dyn DbReader>, DbReaderWriter, Option<Runtime>)> {
     use aptos_db::fake_aptosdb::FakeAptosDB;
-    let (aptos_db, fast_sync_db_wrapper) = FastSyncStorageWrapper::initialize_dbs(node_config)?;
 
-    let (aptos_db, db_rw) = if let Some(db) = aptos_db {
-        DbReaderWriter::wrap(FakeAptosDB::new(db))
-    } else {
-        DbReaderWriter::wrap(FakeAptosDB::new(
+    let (aptos_db, db_rw, _) = match FastSyncStorageWrapper::initialize_dbs(node_config)? {
+        (Some(db), None) => DbReaderWriter::wrap(FakeAptosDB::new(db)),
+        (None, Some(fast_sync_db_wrapper)) => DbReaderWriter::wrap(FakeAptosDB::new(
             fast_sync_db_wrapper.expect("Fast sync db wrapper should not be None"),
-        ))
+        )),
+        _ => unreachable!(),
     };
 
     maybe_apply_genesis(&db_rw, node_config)?;
