@@ -36,9 +36,11 @@ the return on investment didn't seem worth it for these simple functions.
 -  [Function `index_of`](#0x1_vector_index_of)
 -  [Function `find`](#0x1_vector_find)
 -  [Function `insert`](#0x1_vector_insert)
+-  [Function `push_unique`](#0x1_vector_push_unique)
 -  [Function `remove`](#0x1_vector_remove)
 -  [Function `remove_value`](#0x1_vector_remove_value)
 -  [Function `swap_remove`](#0x1_vector_swap_remove)
+-  [Function `swap_remove_value`](#0x1_vector_swap_remove_value)
 -  [Function `for_each`](#0x1_vector_for_each)
 -  [Function `for_each_reverse`](#0x1_vector_for_each_reverse)
 -  [Function `for_each_ref`](#0x1_vector_for_each_ref)
@@ -76,9 +78,11 @@ the return on investment didn't seem worth it for these simple functions.
     -  [Function `contains`](#@Specification_1_contains)
     -  [Function `index_of`](#@Specification_1_index_of)
     -  [Function `insert`](#@Specification_1_insert)
+    -  [Function `push_unique`](#@Specification_1_push_unique)
     -  [Function `remove`](#@Specification_1_remove)
     -  [Function `remove_value`](#@Specification_1_remove_value)
     -  [Function `swap_remove`](#@Specification_1_swap_remove)
+    -  [Function `swap_remove_value`](#@Specification_1_swap_remove_value)
     -  [Function `rotate`](#@Specification_1_rotate)
     -  [Function `rotate_slice`](#@Specification_1_rotate_slice)
 
@@ -679,6 +683,38 @@ Aborts if out of bounds.
 
 </details>
 
+<a name="0x1_vector_push_unique"></a>
+
+## Function `push_unique`
+
+Push a new element to the back of the vector if it is not already in the vector.
+This is O(n) in the worst case and preserves ordering of elements in the vector.
+Return <code><b>true</b></code> if <code>key</code> did not already exist in the vector and <code><b>false</b></code> otherwise.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_push_unique">push_unique</a>&lt;Element: drop&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, e: Element): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_push_unique">push_unique</a>&lt;Element: drop&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, e: Element): bool {
+    <b>if</b> (<a href="vector.md#0x1_vector_contains">contains</a>(v, &e)) {
+        <b>false</b>
+    } <b>else</b> {
+        <a href="vector.md#0x1_vector_push_back">push_back</a>(v, e);
+        <b>true</b>
+    }
+}
+</code></pre>
+
+
+
+</details>
+
 <a name="0x1_vector_remove"></a>
 
 ## Function `remove`
@@ -772,6 +808,43 @@ Aborts if <code>i</code> is out of bounds.
     <b>let</b> last_idx = <a href="vector.md#0x1_vector_length">length</a>(v) - 1;
     <a href="vector.md#0x1_vector_swap">swap</a>(v, i, last_idx);
     <a href="vector.md#0x1_vector_pop_back">pop_back</a>(v)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x1_vector_swap_remove_value"></a>
+
+## Function `swap_remove_value`
+
+Remove the first occurrence of a given value in the vector <code>v</code> and return it in
+a vector, swapping the last element in the vector with the removed item.
+This is O(1) and does NOT preserve ordering of elements in the vector.
+This returns an empty vector if the value isn't present in the vector.
+Note that this cannot return an option as option uses vector and there'd be a
+circular dependency between option and vector.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_swap_remove_value">swap_remove_value</a>&lt;Element&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, val: &Element): <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_swap_remove_value">swap_remove_value</a>&lt;Element&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, val: &Element): <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt; {
+    // This doesn't cost a O(2N) run time <b>as</b> index_of scans from left <b>to</b> right and stops when the element is found,
+    // <b>while</b> remove would <b>continue</b> from the identified index <b>to</b> the end of the <a href="vector.md#0x1_vector">vector</a>.
+    <b>let</b> (found, index) = <a href="vector.md#0x1_vector_index_of">index_of</a>(v, val);
+    <b>if</b> (found) {
+        <a href="vector.md#0x1_vector">vector</a>[<a href="vector.md#0x1_vector_swap_remove">swap_remove</a>(v, index)]
+    } <b>else</b> {
+       <a href="vector.md#0x1_vector">vector</a>[]
+    }
 }
 </code></pre>
 
@@ -1838,6 +1911,22 @@ Check if <code>v</code> contains <code>e</code>.
 
 
 
+<a name="@Specification_1_push_unique"></a>
+
+### Function `push_unique`
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_push_unique">push_unique</a>&lt;Element: drop&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, e: Element): bool
+</code></pre>
+
+
+
+
+<pre><code><b>pragma</b> intrinsic = <b>true</b>;
+</code></pre>
+
+
+
 <a name="@Specification_1_remove"></a>
 
 ### Function `remove`
@@ -1876,6 +1965,22 @@ Check if <code>v</code> contains <code>e</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_swap_remove">swap_remove</a>&lt;Element&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): Element
+</code></pre>
+
+
+
+
+<pre><code><b>pragma</b> intrinsic = <b>true</b>;
+</code></pre>
+
+
+
+<a name="@Specification_1_swap_remove_value"></a>
+
+### Function `swap_remove_value`
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="vector.md#0x1_vector_swap_remove_value">swap_remove_value</a>&lt;Element&gt;(v: &<b>mut</b> <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;, val: &Element): <a href="vector.md#0x1_vector">vector</a>&lt;Element&gt;
 </code></pre>
 
 
