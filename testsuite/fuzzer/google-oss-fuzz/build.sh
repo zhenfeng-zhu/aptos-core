@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 
-NIGHTLY_VERSION="nightly-2023-01-01"  # bitvec does not compile with latest nightly
+NIGHTLY_VERSION="nightly-2023-06-01"
 
 rustup install $NIGHTLY_VERSION
 cd testsuite/fuzzer
