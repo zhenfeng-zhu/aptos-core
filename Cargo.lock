@@ -217,6 +217,7 @@ dependencies = [
  "aptos-global-constants",
  "aptos-keygen",
  "aptos-logger",
+ "aptos-move-graphql-schema",
  "aptos-network-checker",
  "aptos-node",
  "aptos-rest-client",
