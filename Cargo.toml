@@ -66,6 +66,7 @@ members = [
     "crates/aptos-log-derive",
     "crates/aptos-logger",
     "crates/aptos-metrics-core",
+    "crates/aptos-move-graphql/scalars",
     "crates/aptos-network-checker",
     "crates/aptos-node-identity",
     "crates/aptos-openapi",
@@ -335,6 +336,7 @@ aptos-mempool-notifications = { path = "state-sync/inter-component/mempool-notif
 aptos-memsocket = { path = "network/memsocket" }
 aptos-metrics-core = { path = "crates/aptos-metrics-core" }
 aptos-move-examples = { path = "aptos-move/move-examples" }
+aptos-move-graphql-scalars = { path = "crates/aptos-move-graphql/scalars" }
 aptos-moving-average = { path = "crates/moving-average" }
 aptos-mvhashmap = { path = "aptos-move/mvhashmap" }
 aptos-native-interface = { path = "aptos-move/aptos-native-interface" }
