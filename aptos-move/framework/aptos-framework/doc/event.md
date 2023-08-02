@@ -37,6 +37,9 @@ events emitted to a handle and emit events to the event store.
 
 ## Struct `EventHandle`
 
+A handle for an event such that:
+1. Other modules can emit events to this handle.
+2. Storage can use this handle to prove the total number of events that happened in the past.
 
 
 <pre><code>#[deprecated]
@@ -134,6 +137,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `new_event_handle`
 
+Use EventHandleGenerator to generate a unique event handle for <code>sig</code>
 
 
 <pre><code>#[deprecated]
@@ -162,6 +166,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `emit_event`
 
+Emit an event with payload <code>msg</code> by using <code>handle_ref</code>'s key and counter.
 
 
 <pre><code>#[deprecated]
@@ -191,6 +196,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `guid`
 
+Return the GUID associated with this EventHandle
 
 
 <pre><code>#[deprecated]
@@ -216,6 +222,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `counter`
 
+Return the current counter associated with this EventHandle
 
 
 <pre><code>#[deprecated]
@@ -241,6 +248,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `write_to_event_store`
 
+Log <code>msg</code> as the <code>count</code>th event associated with the event stream identified by <code><a href="guid.md#0x1_guid">guid</a></code>
 
 
 <pre><code>#[deprecated]
@@ -264,6 +272,7 @@ Log <code>msg</code> with the event stream identified by <code>T</code>
 
 ## Function `destroy_handle`
 
+Destroy a unique handle.
 
 
 <pre><code>#[deprecated]
