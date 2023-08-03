@@ -355,8 +355,6 @@ impl ReleaseConfig {
                     err
                 )
             })?;
-        } else {
-            bail!("Source directory already exists: {:?}", source_dir);
         }
 
         source_dir.push("sources");
