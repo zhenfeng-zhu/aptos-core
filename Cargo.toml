@@ -67,6 +67,8 @@ members = [
     "crates/aptos-logger",
     "crates/aptos-metrics-core",
     "crates/aptos-move-graphql/scalars",
+    "crates/aptos-move-graphql/schema",
+    "crates/aptos-move-graphql/test-helpers",
     "crates/aptos-network-checker",
     "crates/aptos-node-identity",
     "crates/aptos-openapi",
@@ -337,6 +339,8 @@ aptos-memsocket = { path = "network/memsocket" }
 aptos-metrics-core = { path = "crates/aptos-metrics-core" }
 aptos-move-examples = { path = "aptos-move/move-examples" }
 aptos-move-graphql-scalars = { path = "crates/aptos-move-graphql/scalars" }
+aptos-move-graphql-schema = { path = "crates/aptos-move-graphql/schema" }
+aptos-move-graphql-test-helpers = { path = "crates/aptos-move-graphql/test-helpers" }
 aptos-moving-average = { path = "crates/moving-average" }
 aptos-mvhashmap = { path = "aptos-move/mvhashmap" }
 aptos-native-interface = { path = "aptos-move/aptos-native-interface" }
@@ -411,6 +415,7 @@ aptos-writeset-generator = { path = "aptos-move/writeset-transaction-generator" 
 # Please do not add any test features here: they should be declared by the individual crate.
 again = "0.1.2"
 anyhow = "1.0.71"
+async-graphql = { version = "6.0.1", features = ["dynamic-schema"] }
 anstyle = "1.0.1"
 arc-swap = "1.6.0"
 arr_macro = "0.2.1"
@@ -490,7 +495,7 @@ glob = "0.3.0"
 goldenfile = "1.1.0"
 google-cloud-pubsub = "0.18.0"
 google-cloud-storage = "0.13.0"
-handlebars = "4.2.2"
+handlebars = "4.3.7"
 heck = "0.3.2"
 hex = "0.4.3"
 hkdf = "0.10.0"
