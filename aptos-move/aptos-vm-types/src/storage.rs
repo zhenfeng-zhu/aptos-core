@@ -253,10 +253,10 @@ impl StoragePricing {
                     gas_params,
                 )),
             },
-            10.. => V2(StoragePricingV2::new_without_storage_curves(
+            10.. => V3(StoragePricingV3 {
                 feature_version,
-                gas_params,
-            )),
+                free_write_bytes_quota: gas_params.vm.txn.free_write_bytes_quota,
+            }),
         }
     }
 
