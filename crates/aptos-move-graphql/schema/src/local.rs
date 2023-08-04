@@ -158,10 +158,12 @@ mod tests {
 
         let schema_str = schema.sdl();
 
+        println!("{}", schema_str);
+
         // Assert that the structs with names that are used in other Move modules are
         // given fully qualified names in the schema.
-        assert!(schema_str.contains("type _0x0000000000000000000000000000000000000000000000000000000000000001__pool_u64__Pool"));
-        assert!(schema_str.contains("type _0x0000000000000000000000000000000000000000000000000000000000000001__pool_u64_unbound__Pool"));
+        assert!(schema_str.contains("type _0x1__pool_u64__Pool"));
+        assert!(schema_str.contains("type _0x1__pool_u64_unbound__Pool"));
 
         // Assert that the structs with names that are not used in other Move modules
         // are not given fully qualified names in the schema.

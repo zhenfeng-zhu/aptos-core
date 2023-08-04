@@ -65,10 +65,7 @@ pub fn parse_structs(
     Ok(objects)
 }
 
-/// This function takes a Move type and returns the corresponding GraphQL type. GraphQL
-/// nullability is quite interesting when it comes to vectors, for example you can have
-/// a non nullable vec with nullable values. Make sure to read up on GraphQL
-/// nullability before modifying this function.
+/// This function takes a Move type and returns the corresponding GraphQL type.
 ///
 /// This function has a variety of special behavior for certain Move types. Except for
 /// the special string handling, which is always enabled, everything else is
@@ -83,6 +80,10 @@ pub fn parse_structs(
 /// The `repeated_struct_names` argument is used to determine whether to use the fully
 /// qualified name (address, module, struct name) or not (just struct name). See the
 /// `get_object_name` function to learn more about how we make this determination.
+///
+/// GraphQL nullability is quite interesting when it comes to vectors, for example you
+/// can have a non nullable vec with nullable values. Make sure to read up on GraphQL
+/// nullability before modifying this function.
 pub fn move_type_to_field_type(
     field_type: &MoveType,
     repeated_struct_names: &HashSet<String>,
@@ -177,6 +178,7 @@ pub fn move_type_to_field_type(
                     ))
                 }
             } else {
+                // safgsdfg
                 // TODO: This needs to take generics into account.
                 Ok(TypeRef::NonNull(Box::new(TypeRef::Named(
                     get_object_name(&struct_tag, repeated_struct_names, options).into(),
@@ -217,22 +219,74 @@ fn get_object_name(
         || repeated_struct_names.contains(&struct_name)
         || RESERVED_TYPE_NAMES.contains(&struct_name.as_str());
     if use_fully_qualified_name {
-        get_fully_qualified_object_name(struct_tag)
+        get_fully_qualified_object_name(struct_tag, repeated_struct_names, options)
     } else {
-        struct_name
+        get_suffix(struct_tag, repeated_struct_names, options)
     }
 }
 
 // TODO: It'd be good to use the named address instead of the raw address. Not a high
 // priority though since we only used the fully qualified name when there is a name
 // collision, which is fairly rare.
-fn get_fully_qualified_object_name(struct_tag: &StructTag) -> String {
+fn get_fully_qualified_object_name(
+    struct_tag: &StructTag,
+    repeated_struct_names: &HashSet<String>,
+    options: &BuilderOptions,
+) -> String {
     format!(
         "_{}__{}__{}",
         struct_tag.address.to_standard_string(),
         struct_tag.module,
-        struct_tag.name,
+        get_suffix(struct_tag, repeated_struct_names, options),
     )
+}
+
+// todo explain this
+fn get_suffix(
+    struct_tag: &StructTag,
+    repeated_struct_names: &HashSet<String>,
+    options: &BuilderOptions,
+) -> String {
+    let generic_type_params_str = struct_tag
+        .type_params
+        .iter()
+
+        .map(|type_tag| {
+            let field_type = move_type_to_field_type(
+                &MoveType::from(type_tag.clone()),
+                repeated_struct_names,
+                options,
+            )
+            .unwrap();
+            // Janky
+            // todo use is_nullable
+            let field_type_str = field_type.to_string();
+            // We can't use ! in the type name so we use _Option instead.
+            // Jeez what about vecs............., we gotta deal with the [] too.
+            // Maybe instead of using the types as the names we just assign each
+            // instance of a type a unique number and use that. I think that's better.
+            if is_nullable(&field_type) {
+                format!("{}Optional", field_type_str)
+            } else {
+                field_type_str[..field_type_str.len() - 1].to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("_");
+    let types_suffix = if generic_type_params_str.is_empty() {
+        "".to_string()
+    } else {
+        format!("_{}", generic_type_params_str)
+    };
+    format!("{}{}", struct_tag.name, types_suffix)
+}
+
+fn is_nullable(type_ref: &TypeRef) -> bool {
+    match type_ref {
+        TypeRef::Named(_) => true,
+        TypeRef::NonNull(_) => false,
+        TypeRef::List(_) => true,
+    }
 }
 
 #[cfg(test)]
@@ -261,6 +315,18 @@ mod test {
             module: Identifier::new("option").unwrap().into(),
             name: Identifier::new("Option").unwrap().into(),
             generic_type_params: vec![inner],
+        })
+    }
+
+    /// This function builds the following Move type:
+    ///
+    /// SimpleMap<T, U>
+    fn build_simple_map(key_type: MoveType, value_type: MoveType) -> MoveType {
+        MoveType::Struct(MoveStructTag {
+            address: Address::from_str("0x1").unwrap(),
+            module: Identifier::new("simple_map").unwrap().into(),
+            name: Identifier::new("SimpleMap").unwrap().into(),
+            generic_type_params: vec![key_type, value_type],
         })
     }
 
@@ -370,6 +436,20 @@ mod test {
         let testing_move_type = build_complex_type();
         let field_type = move_type_to_field_type(&testing_move_type, &HashSet::new(), &options)?;
         assert_eq!(&field_type.to_string(), "[[[U32!]]!]");
+        Ok(())
+    }
+
+    // With a GraphQL schema, the only way we can handle generics is to generate a
+    // separate type every time we see a struct used that takes generics. The schema
+    // has no way of representing generics, except for vectors, so this is the only
+    // option we have.
+    #[test]
+    fn test_simple_map() -> Result<()> {
+        let options = build_function_options();
+        let testing_move_type_option = build_option(build_vec_of_u32s());
+        let testing_move_type_simple_map = build_simple_map(MoveType::U64, testing_move_type_option);
+        let field_type = move_type_to_field_type(&testing_move_type_simple_map, &HashSet::new(), &options)?;
+        assert_eq!(&field_type.to_string(), "SimpleMap_U32_U64Option!");
         Ok(())
     }
 }
